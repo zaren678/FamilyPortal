@@ -30,7 +30,6 @@ class AppCoordinator(private val scope: CoroutineScope) {
         _state.update {
             it.copy(
                 overlay = PortalOverlay.Doorbell(cameraId, Instant.now(), playChime),
-                isDimmed = false,
                 isSleeping = false,
             )
         }
@@ -63,10 +62,10 @@ class AppCoordinator(private val scope: CoroutineScope) {
         _state.update { it.copy(homeAssistantState = connectionState) }
     }
 
-    fun setDisplayState(dimmed: Boolean, sleeping: Boolean) {
+    fun setDisplayState(sleeping: Boolean) {
         _state.update { current ->
             if (current.overlay is PortalOverlay.Doorbell) current
-            else current.copy(isDimmed = dimmed, isSleeping = sleeping)
+            else current.copy(isSleeping = sleeping)
         }
     }
 }

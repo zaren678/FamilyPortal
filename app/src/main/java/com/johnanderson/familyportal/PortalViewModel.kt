@@ -115,18 +115,15 @@ class PortalViewModel(
         val current = settings.value
         val activeHours = isActiveHours(current)
         if (!activeHours) manualWakeUntilMillis = System.currentTimeMillis() + MANUAL_WAKE_MILLIS
-        graph.coordinator.setDisplayState(dimmed = false, sleeping = false)
+        graph.coordinator.setDisplayState(sleeping = false)
         idleJob?.cancel()
-        idleJob = viewModelScope.launch {
-            if (activeHours) {
-                delay(current.idleDelayMinutes.coerceAtLeast(1) * 60_000L)
-                graph.coordinator.setDisplayState(dimmed = true, sleeping = false)
-            } else {
+        idleJob = if (!activeHours) {
+            viewModelScope.launch {
                 delay(MANUAL_WAKE_MILLIS)
                 manualWakeUntilMillis = 0L
-                graph.coordinator.setDisplayState(dimmed = true, sleeping = true)
+                graph.coordinator.setDisplayState(sleeping = true)
             }
-        }
+        } else null
     }
 
     fun previousWeek() { _weekStart.value = _weekStart.value.minusWeeks(1) }
@@ -290,9 +287,6 @@ class PortalViewModel(
     fun updateDisplaySettings(
         startMinutes: Int,
         endMinutes: Int,
-        idleMinutes: Int,
-        activeBrightness: Float,
-        idleBrightness: Float,
         alertSeconds: Int,
     ) =
         viewModelScope.launch {
@@ -300,9 +294,6 @@ class PortalViewModel(
                 it.copy(
                     activeStartMinutes = startMinutes,
                     activeEndMinutes = endMinutes,
-                    idleDelayMinutes = idleMinutes.coerceAtLeast(1),
-                    activeBrightness = activeBrightness.coerceIn(0.1f, 1f),
-                    idleBrightness = idleBrightness.coerceIn(0.05f, 0.8f),
                     alertDurationSeconds = alertSeconds.coerceIn(10, 120),
                 )
             }
@@ -310,9 +301,9 @@ class PortalViewModel(
 
     private fun evaluateSchedule(value: AppSettings) {
         if (!isActiveHours(value) && System.currentTimeMillis() >= manualWakeUntilMillis) {
-            graph.coordinator.setDisplayState(dimmed = true, sleeping = true)
+            graph.coordinator.setDisplayState(sleeping = true)
         } else if (appState.value.isSleeping) {
-            graph.coordinator.setDisplayState(dimmed = false, sleeping = false)
+            graph.coordinator.setDisplayState(sleeping = false)
         }
     }
 

@@ -109,15 +109,11 @@ class MainActivity : ComponentActivity() {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) portalViewModel.userActivity()
         return super.dispatchTouchEvent(event)
     }
-    fun applyDisplayState(dimmed: Boolean, sleeping: Boolean, activeBrightness: Float, idleBrightness: Float) {
+    fun applyDisplayState(sleeping: Boolean) {
         if (sleeping) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.attributes = window.attributes.apply {
-            screenBrightness = when {
-                sleeping -> 0.01f
-                dimmed -> idleBrightness.coerceIn(0.05f, 1f)
-                else -> activeBrightness.coerceIn(0.05f, 1f)
-            }
+            screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
         }
     }
     private fun hideSystemUi() {
@@ -159,13 +155,8 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
     val route by navController.currentBackStackEntryAsState()
     var requestPin by remember { mutableStateOf(false) }
     var pinError by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(appState.isDimmed, appState.isSleeping, settings) {
-        (activity as MainActivity).applyDisplayState(
-            appState.isDimmed,
-            appState.isSleeping,
-            settings.activeBrightness,
-            settings.idleBrightness,
-        )
+    LaunchedEffect(appState.isSleeping) {
+        (activity as MainActivity).applyDisplayState(appState.isSleeping)
     }
     val selectedTabIndex = when (route?.destination?.route) {
         ROUTE_CAMERAS -> 1

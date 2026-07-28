@@ -20,7 +20,6 @@ data class AppUiState(
     val selectedTab: PortalTab = PortalTab.CALENDAR,
     val overlay: PortalOverlay? = null,
     val homeAssistantState: ConnectionState = ConnectionState.DISCONNECTED,
-    val isDimmed: Boolean = false,
     val isSleeping: Boolean = false,
 )
 
@@ -42,8 +41,5 @@ data class AppSettings(
     val cameras: List<CameraConfig> = emptyList(),
     val activeStartMinutes: Int = 7 * 60,
     val activeEndMinutes: Int = 22 * 60,
-    val idleDelayMinutes: Int = 5,
-    val activeBrightness: Float = 0.85f,
-    val idleBrightness: Float = 0.25f,
     val alertDurationSeconds: Int = 30,
 )

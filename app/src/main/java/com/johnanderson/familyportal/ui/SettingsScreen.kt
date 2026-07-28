@@ -27,7 +27,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -77,7 +76,7 @@ fun SettingsScreen(
     onSaveHomeAssistant: (String, String, String) -> Unit,
     onSaveCamera: (String?, String, String, String, String, Boolean) -> Unit,
     onDeleteCamera: (String) -> Unit,
-    onSaveDisplay: (Int, Int, Int, Float, Float, Int) -> Unit,
+    onSaveDisplay: (Int, Int, Int) -> Unit,
     onSetPin: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -86,15 +85,6 @@ fun SettingsScreen(
     }
     var endTime by rememberSaveable(settings.activeEndMinutes) {
         mutableStateOf(formatMinutes(settings.activeEndMinutes))
-    }
-    var idleMinutes by rememberSaveable(settings.idleDelayMinutes) {
-        mutableStateOf(settings.idleDelayMinutes.toString())
-    }
-    var activeBrightness by rememberSaveable(settings.activeBrightness) {
-        mutableStateOf(settings.activeBrightness)
-    }
-    var idleBrightness by rememberSaveable(settings.idleBrightness) {
-        mutableStateOf(settings.idleBrightness)
     }
     var alertSeconds by rememberSaveable(settings.alertDurationSeconds) {
         mutableStateOf(settings.alertDurationSeconds.toString())
@@ -213,14 +203,6 @@ fun SettingsScreen(
                     singleLine = true,
                 )
                 OutlinedTextField(
-                    value = idleMinutes,
-                    onValueChange = { idleMinutes = it.filter(Char::isDigit) },
-                    label = { Text("Dim after (minutes)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                )
-                OutlinedTextField(
                     value = alertSeconds,
                     onValueChange = { alertSeconds = it.filter(Char::isDigit) },
                     label = { Text("After stop (seconds)") },
@@ -231,12 +213,6 @@ fun SettingsScreen(
             }
         }
         item {
-            Text("Active brightness ${(activeBrightness * 100).toInt()}%")
-            Slider(value = activeBrightness, onValueChange = { activeBrightness = it }, valueRange = 0.1f..1f)
-            Text("Dimmed brightness ${(idleBrightness * 100).toInt()}%")
-            Slider(value = idleBrightness, onValueChange = { idleBrightness = it }, valueRange = 0.05f..0.8f)
-        }
-        item {
             Button(
                 onClick = {
                     val start = parseTime(startTime)
@@ -245,9 +221,6 @@ fun SettingsScreen(
                         onSaveDisplay(
                             start,
                             end,
-                            idleMinutes.toIntOrNull() ?: 5,
-                            activeBrightness,
-                            idleBrightness,
                             alertSeconds.toIntOrNull() ?: 30,
                         )
                     }
