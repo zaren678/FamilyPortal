@@ -1,0 +1,14 @@
+*.iml
+.gradle/
+.idea/
+/local.properties
+/.kotlin/
+/build/
+/app/build/
+*.jks
+*.keystore
+keystore.properties
+captures/
+.DS_Store
+__pycache__/
+*.py[cod]

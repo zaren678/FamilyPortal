@@ -1,0 +1,2 @@
+-keep class net.openid.appauth.** { *; }
+-keepattributes Signature,*Annotation*

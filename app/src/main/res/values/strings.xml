@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Family Portal</string>
+    <string name="service_channel_name">Doorbell connection</string>
+    <string name="service_notification">Listening for doorbell events</string>
+</resources>

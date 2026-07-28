@@ -1,0 +1,5 @@
+sdk.dir=/opt/android_sdk
+GOOGLE_OAUTH_CLIENT_ID=000000000000-example.apps.googleusercontent.com
+
+GOOGLE_DEVICE_OAUTH_CLIENT_ID=000000000000-example.apps.googleusercontent.com
+GOOGLE_DEVICE_OAUTH_CLIENT_SECRET=example-client-secret
