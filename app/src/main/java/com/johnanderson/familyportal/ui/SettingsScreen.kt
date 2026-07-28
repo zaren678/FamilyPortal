@@ -74,7 +74,7 @@ fun SettingsScreen(
     onSelectDoorbellSensor: (String) -> Unit,
     onAddDiscoveredCamera: (String, String, Boolean) -> Unit,
     onSaveHomeAssistant: (String, String, String) -> Unit,
-    onSaveCamera: (String?, String, String, String, String, Boolean) -> Unit,
+    onSaveCamera: (String?, String, String, String, String, Boolean, Boolean) -> Unit,
     onDeleteCamera: (String) -> Unit,
     onSaveDisplay: (Int, Int, Int) -> Unit,
     onSetPin: (String) -> Unit,
@@ -173,6 +173,7 @@ fun SettingsScreen(
                         Text("Grid: ${camera.previewEntityId}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                if (camera.hasAudio) Text("Audio", color = MaterialTheme.colorScheme.primary)
                 if (camera.isDoorbell) Text("Doorbell", color = MaterialTheme.colorScheme.tertiary)
                 IconButton(onClick = { onDeleteCamera(camera.id) }) {
                     Icon(Icons.Default.Delete, "Delete ${camera.name}")
@@ -267,8 +268,8 @@ fun SettingsScreen(
         CameraEditDialog(
             existing = editingCamera,
             onDismiss = { showCameraDialog = false },
-            onSave = { id, name, entity, previewEntity, rtsp, doorbell ->
-                onSaveCamera(id, name, entity, previewEntity, rtsp, doorbell)
+            onSave = { id, name, entity, previewEntity, rtsp, hasAudio, doorbell ->
+                onSaveCamera(id, name, entity, previewEntity, rtsp, hasAudio, doorbell)
                 showCameraDialog = false
             },
         )
@@ -291,7 +292,7 @@ private fun SectionTitle(text: String) {
 private fun CameraEditDialog(
     existing: CameraConfig?,
     onDismiss: () -> Unit,
-    onSave: (String?, String, String, String, String, Boolean) -> Unit,
+    onSave: (String?, String, String, String, String, Boolean, Boolean) -> Unit,
 ) {
     var name by rememberSaveable(existing?.id) { mutableStateOf(existing?.name.orEmpty()) }
     var entity by rememberSaveable(existing?.id) { mutableStateOf(existing?.entityId.orEmpty()) }
@@ -299,6 +300,7 @@ private fun CameraEditDialog(
         mutableStateOf(existing?.previewEntityId.orEmpty())
     }
     var rtsp by rememberSaveable(existing?.id) { mutableStateOf("") }
+    var hasAudio by rememberSaveable(existing?.id) { mutableStateOf(existing?.hasAudio == true) }
     var doorbell by rememberSaveable(existing?.id) { mutableStateOf(existing?.isDoorbell == true) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -328,6 +330,10 @@ private fun CameraEditDialog(
                     singleLine = true,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Has audio", Modifier.weight(1f))
+                    Switch(hasAudio, { hasAudio = it })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Use for doorbell alerts", Modifier.weight(1f))
                     Switch(doorbell, { doorbell = it })
                 }
@@ -336,7 +342,7 @@ private fun CameraEditDialog(
         confirmButton = {
             TextButton(
                 enabled = name.isNotBlank() && entity.isNotBlank() && (existing != null || rtsp.isNotBlank()),
-                onClick = { onSave(existing?.id, name, entity, previewEntity, rtsp, doorbell) },
+                onClick = { onSave(existing?.id, name, entity, previewEntity, rtsp, hasAudio, doorbell) },
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

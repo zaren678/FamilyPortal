@@ -141,6 +141,9 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
     val activity = LocalContext.current as Activity
     val appState by viewModel.appState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val displayCameras = remember(settings.cameras) {
+        settings.cameras.sortedByDescending { it.isDoorbell }
+    }
     val sources by viewModel.calendarSources.collectAsStateWithLifecycle()
     val events by viewModel.calendarEvents.collectAsStateWithLifecycle()
     val weekStart by viewModel.weekStart.collectAsStateWithLifecycle()
@@ -251,7 +254,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                 }
                 composable(ROUTE_CAMERAS) {
                     CameraScreen(
-                        cameras = settings.cameras,
+                        cameras = displayCameras,
                         homeAssistantUrl = settings.homeAssistantUrl,
                         repository = viewModel.graph.cameraRepository,
                         previewsActive = appState.overlay == null,
@@ -306,7 +309,8 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
             }
             settings.cameras.firstOrNull { it.id == cameraId }?.let { camera ->
                 CameraViewerOverlay(
-                    camera = camera,
+                    cameras = displayCameras,
+                    initialCameraId = camera.id,
                     homeAssistantUrl = settings.homeAssistantUrl,
                     repository = viewModel.graph.cameraRepository,
                     isDoorbell = overlay is PortalOverlay.Doorbell,

@@ -203,7 +203,7 @@ class PortalViewModel(
     }
 
     fun addDiscoveredCamera(entityId: String, name: String, doorbell: Boolean) =
-        saveCamera(null, name, entityId, "", "", doorbell)
+        saveCamera(null, name, entityId, "", "", false, doorbell)
 
     private suspend fun pairDiscoveredCameraStreams(catalog: HomeAssistantCatalog) {
         graph.settingsRepository.update { current ->
@@ -254,6 +254,7 @@ class PortalViewModel(
         entityId: String,
         previewEntityId: String,
         rtspUri: String,
+        hasAudio: Boolean,
         doorbell: Boolean,
     ) =
         viewModelScope.launch {
@@ -266,11 +267,17 @@ class PortalViewModel(
                     entityId = entityId.trim(),
                     previewEntityId = previewEntityId.trim(),
                     rtspSecretKey = com.johnanderson.familyportal.core.SecureStore.rtspKey(id),
+                    hasAudio = hasAudio,
                     isDoorbell = doorbell,
                 )
-                val cameras = current.cameras.filterNot { it.id == id }.map {
-                    if (doorbell) it.copy(isDoorbell = false) else it
-                } + updated
+                val normalized = current.cameras.map { camera ->
+                    if (doorbell) camera.copy(isDoorbell = false) else camera
+                }
+                val cameras = if (existingId == null) {
+                    normalized + updated
+                } else {
+                    normalized.map { camera -> if (camera.id == id) updated else camera }
+                }
                 current.copy(cameras = cameras)
             }
         }

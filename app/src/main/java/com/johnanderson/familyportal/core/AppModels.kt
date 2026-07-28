@@ -30,6 +30,7 @@ data class CameraConfig(
     val entityId: String,
     val previewEntityId: String = "",
     val rtspSecretKey: String,
+    val hasAudio: Boolean = false,
     val isDoorbell: Boolean = false,
 )
 

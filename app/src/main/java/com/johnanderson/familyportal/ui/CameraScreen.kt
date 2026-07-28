@@ -1,6 +1,7 @@
 package com.johnanderson.familyportal.ui
-import android.view.ViewGroup
+
 import android.util.Log
+import android.view.ViewGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,9 +15,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.VideocamOff
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -35,6 +40,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -55,7 +62,8 @@ fun CameraScreen(
     repository: CameraRepository,
     previewsActive: Boolean,
     onCameraSelected: (String) -> Unit,
-    modifier: Modifier = Modifier,) {
+    modifier: Modifier = Modifier,
+) {
     LaunchedEffect(cameras, homeAssistantUrl, previewsActive) {
         if (!previewsActive || homeAssistantUrl.isBlank()) return@LaunchedEffect
         while (true) {
@@ -104,7 +112,8 @@ private fun LiveCameraTile(
     repository: CameraRepository,
     active: Boolean,
     startupDelayMillis: Long,
-    onClick: () -> Unit,) {
+    onClick: () -> Unit,
+) {
     val context = LocalContext.current
     val gridCamera = remember(camera) {
         camera.copy(entityId = camera.previewEntityId.ifBlank { camera.entityId })
@@ -216,11 +225,55 @@ private fun LiveCameraTile(
 
 @Composable
 fun CameraViewerOverlay(
+    cameras: List<CameraConfig>,
+    initialCameraId: String,
+    homeAssistantUrl: String,
+    repository: CameraRepository,
+    isDoorbell: Boolean,
+    onDismiss: () -> Unit,
+) {
+    if (cameras.isEmpty()) return
+
+    val initialPage = remember(cameras, initialCameraId) {
+        cameras.indexOfFirst { it.id == initialCameraId }.coerceAtLeast(0)
+    }
+    var isMuted by remember(initialCameraId) { mutableStateOf(true) }
+    val pagerState = rememberPagerState(
+        initialPage = initialPage,
+        pageCount = { cameras.size },
+    )
+
+    HorizontalPager(
+        state = pagerState,
+        modifier = Modifier.fillMaxSize(),
+        key = { page -> cameras[page].id },
+        userScrollEnabled = cameras.size > 1,
+    ) { page ->
+        val camera = cameras[page]
+        FullScreenCameraPage(
+            camera = camera,
+            homeAssistantUrl = homeAssistantUrl,
+            repository = repository,
+            isDoorbell = isDoorbell && camera.id == initialCameraId,
+            isMuted = isMuted,
+            audioEnabled = !isMuted && page == pagerState.settledPage,
+            onMuteChanged = { isMuted = it },
+            onDismiss = onDismiss,
+        )
+    }
+}
+
+@Composable
+private fun FullScreenCameraPage(
     camera: CameraConfig,
     homeAssistantUrl: String,
     repository: CameraRepository,
     isDoorbell: Boolean,
-    onDismiss: () -> Unit,) {
+    isMuted: Boolean,
+    audioEnabled: Boolean,
+    onMuteChanged: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val context = LocalContext.current
     var streamUri by remember(camera.id, homeAssistantUrl) { mutableStateOf<String?>(null) }
     var streamAttempt by remember(camera.id, homeAssistantUrl) { mutableStateOf(0) }
@@ -256,12 +309,21 @@ fun CameraViewerOverlay(
     }
     val player = remember(camera.id, streamUri) {
         streamUri?.let { uri ->
-            ExoPlayer.Builder(context).build().apply {
-                setMediaItem(MediaItem.fromUri(uri))
-                playWhenReady = true
-                prepare()
-            }
+            ExoPlayer.Builder(context)
+                .setAudioAttributes(CAMERA_AUDIO_ATTRIBUTES, false)
+                .build()
+                .apply {
+                    volume = 0f
+                    setMediaItem(MediaItem.fromUri(uri))
+                    playWhenReady = true
+                    prepare()
+                }
         }
+    }
+    LaunchedEffect(player, audioEnabled, camera.hasAudio) {
+        val shouldPlayAudio = audioEnabled && camera.hasAudio
+        player?.setAudioAttributes(CAMERA_AUDIO_ATTRIBUTES, shouldPlayAudio)
+        player?.volume = if (shouldPlayAudio) 1f else 0f
     }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -301,7 +363,7 @@ fun CameraViewerOverlay(
                 factory = {
                     PlayerView(it).apply {
                         this.player = player
-                        useController = !isDoorbell
+                        useController = false
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -341,14 +403,30 @@ fun CameraViewerOverlay(
             color = androidx.compose.ui.graphics.Color.White,
             style = MaterialTheme.typography.headlineMedium,
         )
+        if (!playbackFailed && player != null && camera.hasAudio) {
+            FilledIconButton(
+                onClick = { onMuteChanged(!isMuted) },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+            ) {
+                Icon(
+                    if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                    if (isMuted) "Unmute" else "Mute",
+                )
+            }
+        }
         FilledIconButton(
             onClick = onDismiss,
-            modifier = Modifier.align(Alignment.TopEnd).padding(20.dp),
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 68.dp, end = 20.dp),
         ) {
             Icon(Icons.Default.Close, "Dismiss")
         }
     }
 }
+
+private val CAMERA_AUDIO_ATTRIBUTES = AudioAttributes.Builder()
+    .setUsage(C.USAGE_MEDIA)
+    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+    .build()
 
 private const val MAX_STREAM_ATTEMPTS = 3
 private const val CAMERA_TILE_ASPECT_RATIO = 1.9f
