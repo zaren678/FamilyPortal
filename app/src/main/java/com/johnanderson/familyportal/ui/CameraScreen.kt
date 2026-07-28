@@ -94,7 +94,8 @@ fun CameraScreen(
                 )
             }
         }
-    }}
+    }
+}
 
 @Composable
 private fun LiveCameraTile(
@@ -169,7 +170,7 @@ private fun LiveCameraTile(
     Box(
         Modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9f)
+            .aspectRatio(CAMERA_TILE_ASPECT_RATIO)
             .background(androidx.compose.ui.graphics.Color.Black)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -210,7 +211,8 @@ private fun LiveCameraTile(
             color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.titleSmall,
         )
-    }}
+    }
+}
 
 @Composable
 fun CameraViewerOverlay(
@@ -345,6 +347,8 @@ fun CameraViewerOverlay(
         ) {
             Icon(Icons.Default.Close, "Dismiss")
         }
-    }}
+    }
+}
 
 private const val MAX_STREAM_ATTEMPTS = 3
+private const val CAMERA_TILE_ASPECT_RATIO = 1.9f

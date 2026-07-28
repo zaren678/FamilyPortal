@@ -68,7 +68,7 @@ class PortalViewModel(
     val calendarEvents: StateFlow<List<CalendarEventEntity>> = _weekStart
         .flatMapLatest { date ->
             val zone = ZoneId.systemDefault()
-            val start = date.atStartOfDay(zone).toInstant()
+            val start = date.minusDays(7).atStartOfDay(zone).toInstant()
             val end = date.plusDays(14).atStartOfDay(zone).toInstant()
             graph.calendarRepository.events(start, end)
         }
@@ -126,9 +126,7 @@ class PortalViewModel(
         } else null
     }
 
-    fun previousWeek() { _weekStart.value = _weekStart.value.minusWeeks(1) }
-    fun nextWeek() { _weekStart.value = _weekStart.value.plusWeeks(1) }
-    fun today() { _weekStart.value = currentSunday() }
+    fun selectWeek(start: LocalDate) { _weekStart.value = start }
     fun selectTab(tab: PortalTab) = graph.coordinator.selectTab(tab)
     fun openCamera(id: String) = graph.coordinator.openCamera(id)
     fun dismissOverlay() = graph.coordinator.dismissOverlay()

@@ -2,6 +2,9 @@ package com.johnanderson.familyportal
 
 import com.johnanderson.familyportal.calendar.CalendarEventEntity
 import com.johnanderson.familyportal.ui.layoutTimelineEvents
+import com.johnanderson.familyportal.ui.pagerPageForWeek
+import com.johnanderson.familyportal.ui.weekForPagerPage
+import com.johnanderson.familyportal.ui.weekRangeLabel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,6 +15,25 @@ import java.time.ZonedDateTime
 class CalendarTimelineTest {
     private val zone = ZoneId.of("America/Los_Angeles")
     private val day = LocalDate.of(2026, 7, 28)
+
+    @Test
+    fun weekRangeAlwaysIncludesYear() {
+        assertEquals("Jul 26 - Aug 1, 2026", weekRangeLabel(LocalDate.of(2026, 7, 26)))
+        assertEquals(
+            "Dec 27, 2026 - Jan 2, 2027",
+            weekRangeLabel(LocalDate.of(2026, 12, 27)),
+        )
+    }
+
+    @Test
+    fun pagerPagesMapToAdjacentWeeks() {
+        val base = LocalDate.of(2026, 7, 26)
+
+        assertEquals(base.minusWeeks(1), weekForPagerPage(base, 4_999))
+        assertEquals(base, weekForPagerPage(base, 5_000))
+        assertEquals(base.plusWeeks(1), weekForPagerPage(base, 5_001))
+        assertEquals(5_001, pagerPageForWeek(base, base.plusWeeks(1)))
+    }
 
     @Test
     fun positionsEventsByMinuteOfDay() {

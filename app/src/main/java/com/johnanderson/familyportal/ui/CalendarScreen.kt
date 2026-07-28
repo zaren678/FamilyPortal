@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -23,15 +25,15 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +56,8 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.max
 
 @Composable
@@ -61,13 +65,29 @@ fun CalendarScreen(
     weekStart: LocalDate,
     events: List<CalendarEventEntity>,
     syncState: CalendarSyncState,
-    onPreviousWeek: () -> Unit,
-    onNextWeek: () -> Unit,
-    onToday: () -> Unit,
+    onWeekSelected: (LocalDate) -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var selectedEvent by remember { mutableStateOf<CalendarEventEntity?>(null) }
+    val pagerBaseWeek = remember { weekStart }
+    val pagerState = rememberPagerState(
+        initialPage = WEEK_PAGER_INITIAL_PAGE,
+        pageCount = { WEEK_PAGER_PAGE_COUNT },
+    )
+    val coroutineScope = rememberCoroutineScope()
+    val displayedWeek = weekForPagerPage(pagerBaseWeek, pagerState.currentPage)
+    val currentMinuteOfDay by produceState(LocalTime.now().toSecondOfDay() / 60f) {
+        while (true) {
+            val now = LocalTime.now()
+            value = now.toSecondOfDay() / 60f
+            delay(60_000L - (System.currentTimeMillis() % 60_000L))
+        }
+    }
+
+    LaunchedEffect(pagerState.settledPage) {
+        onWeekSelected(weekForPagerPage(pagerBaseWeek, pagerState.settledPage))
+    }
 
     Column(modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
         Row(
@@ -75,7 +95,7 @@ fun CalendarScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "${weekStart.format(MONTH_DAY)} - ${weekStart.plusDays(6).format(MONTH_DAY)}",
+                weekRangeLabel(displayedWeek),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -90,21 +110,49 @@ fun CalendarScreen(
                     modifier = Modifier.padding(horizontal = 8.dp),
                 )
             }
-            IconButton(onClick = onToday) { Icon(Icons.Default.Today, "Today") }
-            IconButton(onClick = onPreviousWeek) {
+            IconButton(
+                onClick = {
+                    coroutineScope.launch {
+                        pagerState.animateScrollToPage(
+                            pagerPageForWeek(pagerBaseWeek, currentWeekStart()),
+                        )
+                    }
+                },
+            ) { Icon(Icons.Default.Today, "Today") }
+            IconButton(
+                onClick = {
+                    coroutineScope.launch {
+                        pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                    }
+                },
+            ) {
                 Icon(Icons.Default.ChevronLeft, "Previous week")
             }
-            IconButton(onClick = onNextWeek) { Icon(Icons.Default.ChevronRight, "Next week") }
+            IconButton(
+                onClick = {
+                    coroutineScope.launch {
+                        pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                    }
+                },
+            ) { Icon(Icons.Default.ChevronRight, "Next week") }
             IconButton(onClick = onRefresh, enabled = !syncState.syncing) {
                 Icon(Icons.Default.Refresh, "Refresh calendars")
             }
         }
-        WeekTimeline(
-            weekStart = weekStart,
-            events = events,
-            onEventClick = { selectedEvent = it },
+        HorizontalPager(
+            state = pagerState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
-        )
+            beyondViewportPageCount = 1,
+            key = { page -> weekForPagerPage(pagerBaseWeek, page).toEpochDay() },
+        ) { page ->
+            WeekTimeline(
+                weekStart = weekForPagerPage(pagerBaseWeek, page),
+                events = events,
+                currentMinuteOfDay = currentMinuteOfDay,
+                onEventClick = { selectedEvent = it },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
     selectedEvent?.let { event ->
         EventDetailDialog(
@@ -118,6 +166,7 @@ fun CalendarScreen(
 private fun WeekTimeline(
     weekStart: LocalDate,
     events: List<CalendarEventEntity>,
+    currentMinuteOfDay: Float,
     onEventClick: (CalendarEventEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -152,6 +201,7 @@ private fun WeekTimeline(
             weekStart = weekStart,
             days = days,
             eventsByDay = eventsByDay,
+            currentMinuteOfDay = currentMinuteOfDay,
             onEventClick = onEventClick,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
@@ -261,6 +311,7 @@ private fun TimelineBody(
     weekStart: LocalDate,
     days: List<LocalDate>,
     eventsByDay: Map<LocalDate, List<CalendarEventEntity>>,
+    currentMinuteOfDay: Float,
     onEventClick: (CalendarEventEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -288,6 +339,7 @@ private fun TimelineBody(
                 DayTimeline(
                     day = day,
                     events = eventsByDay[day].orEmpty().filterNot { it.allDay },
+                    currentMinuteOfDay = currentMinuteOfDay,
                     onEventClick = onEventClick,
                     modifier = Modifier.weight(1f).height(TIMELINE_HEIGHT),
                 )
@@ -317,6 +369,7 @@ private fun TimeGutter() {
 private fun DayTimeline(
     day: LocalDate,
     events: List<CalendarEventEntity>,
+    currentMinuteOfDay: Float,
     onEventClick: (CalendarEventEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -324,7 +377,6 @@ private fun DayTimeline(
     val currentTimeColor = MaterialTheme.colorScheme.error
     val today = day == LocalDate.now()
     val placements = remember(day, events) { layoutTimelineEvents(events, day) }
-    val nowMinute = LocalTime.now().toSecondOfDay() / 60f
 
     BoxWithConstraints(
         modifier
@@ -347,7 +399,7 @@ private fun DayTimeline(
                     strokeWidth = 1f,
                 )
                 if (today) {
-                    val y = nowMinute / MINUTES_PER_HOUR * hourHeight
+                    val y = currentMinuteOfDay / MINUTES_PER_HOUR * hourHeight
                     drawLine(
                         color = currentTimeColor,
                         start = Offset(0f, y),
@@ -415,152 +467,6 @@ private fun TimelineEventCard(
     }
 }
 
-@Composable
-private fun EventDetailDialog(
-    event: CalendarEventEntity,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .width(6.dp)
-                        .height(44.dp)
-                        .background(parseColor(event.color)),
-                )
-                Text(
-                    event.title,
-                    modifier = Modifier.padding(start = 10.dp),
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-            }
-        },
-        text = {
-            Column {
-                Text(
-                    event.detailDateTimeLabel(),
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontSize = 17.sp,
-                        lineHeight = 22.sp,
-                    ),
-                )
-                event.location?.takeIf { it.isNotBlank() }?.let { location ->
-                    Spacer(Modifier.height(14.dp))
-                    Text("Location", style = MaterialTheme.typography.labelLarge)
-                    Text(location, style = MaterialTheme.typography.bodyLarge)
-                }
-                Spacer(Modifier.height(14.dp))
-                Text("Calendar", style = MaterialTheme.typography.labelLarge)
-                Text(event.calendarId, style = MaterialTheme.typography.bodyMedium)
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
-        },
-    )
-}
-
-internal data class TimelineEventPlacement(
-    val event: CalendarEventEntity,
-    val startMinute: Float,
-    val endMinute: Float,
-    val lane: Int,
-    val laneCount: Int,
-)
-
-private data class RawTimelineEvent(
-    val event: CalendarEventEntity,
-    val startMinute: Float,
-    val endMinute: Float,
-    val visualEndMinute: Float,
-)
-
-internal fun layoutTimelineEvents(
-    events: List<CalendarEventEntity>,
-    day: LocalDate,
-    zone: ZoneId = ZoneId.systemDefault(),
-): List<TimelineEventPlacement> {
-    val rawEvents = events
-        .asSequence()
-        .filterNot { it.allDay }
-        .filter { it.occursOn(day, zone) }
-        .map { event ->
-            val start = Instant.ofEpochMilli(event.startEpochMillis).atZone(zone)
-            val end = Instant.ofEpochMilli(event.endEpochMillis).atZone(zone)
-            val startMinute = if (start.toLocalDate().isBefore(day)) {
-                0f
-            } else {
-                start.toLocalTime().toSecondOfDay() / 60f
-            }
-            val endMinute = if (end.toLocalDate().isAfter(day)) {
-                MINUTES_PER_DAY
-            } else {
-                end.toLocalTime().toSecondOfDay() / 60f
-            }.coerceAtLeast(startMinute + 1f)
-            RawTimelineEvent(
-                event = event,
-                startMinute = startMinute,
-                endMinute = endMinute.coerceAtMost(MINUTES_PER_DAY),
-                visualEndMinute = max(endMinute, startMinute + MIN_VISUAL_EVENT_MINUTES)
-                    .coerceAtMost(MINUTES_PER_DAY),
-            )
-        }
-        .sortedWith(compareBy<RawTimelineEvent> { it.startMinute }.thenBy { it.endMinute })
-        .toList()
-
-    val placements = mutableListOf<TimelineEventPlacement>()
-    var groupStart = 0
-    while (groupStart < rawEvents.size) {
-        var groupEnd = groupStart + 1
-        var latestVisualEnd = rawEvents[groupStart].visualEndMinute
-        while (
-            groupEnd < rawEvents.size &&
-            rawEvents[groupEnd].startMinute < latestVisualEnd
-        ) {
-            latestVisualEnd = max(latestVisualEnd, rawEvents[groupEnd].visualEndMinute)
-            groupEnd += 1
-        }
-
-        val group = rawEvents.subList(groupStart, groupEnd)
-        val laneEnds = mutableListOf<Float>()
-        val assignedLanes = group.map { event ->
-            val availableLane = laneEnds.indexOfFirst { it <= event.startMinute }
-            val lane = if (availableLane >= 0) availableLane else laneEnds.size
-            if (availableLane >= 0) {
-                laneEnds[lane] = event.visualEndMinute
-            } else {
-                laneEnds.add(event.visualEndMinute)
-            }
-            event to lane
-        }
-        val laneCount = laneEnds.size
-        placements += assignedLanes.map { (event, lane) ->
-            TimelineEventPlacement(
-                event = event.event,
-                startMinute = event.startMinute,
-                endMinute = event.endMinute,
-                lane = lane,
-                laneCount = laneCount,
-            )
-        }
-        groupStart = groupEnd
-    }
-    return placements
-}
-
-private fun CalendarEventEntity.occursOn(
-    day: LocalDate,
-    zone: ZoneId = ZoneId.systemDefault(),
-): Boolean {
-    val startDate = Instant.ofEpochMilli(startEpochMillis).atZone(zone).toLocalDate()
-    val endDate = Instant.ofEpochMilli(
-        (endEpochMillis - 1).coerceAtLeast(startEpochMillis),
-    ).atZone(zone).toLocalDate()
-    return !day.isBefore(startDate) && !day.isAfter(endDate)
-}
-
 private fun CalendarEventEntity.timeRangeLabel(): String {
     val zone = ZoneId.systemDefault()
     val start = Instant.ofEpochMilli(startEpochMillis).atZone(zone)
@@ -568,41 +474,21 @@ private fun CalendarEventEntity.timeRangeLabel(): String {
     return "${start.format(TIME)}-${end.format(TIME)}"
 }
 
-private fun CalendarEventEntity.detailDateTimeLabel(): String {
-    val zone = ZoneId.systemDefault()
-    val start = Instant.ofEpochMilli(startEpochMillis).atZone(zone)
-    val end = Instant.ofEpochMilli(endEpochMillis).atZone(zone)
-    if (allDay) {
-        val inclusiveEnd = Instant.ofEpochMilli(
-            (endEpochMillis - 1).coerceAtLeast(startEpochMillis),
-        ).atZone(zone)
-        val dateLabel = if (start.toLocalDate() == inclusiveEnd.toLocalDate()) {
-            start.format(DETAIL_DATE)
-        } else {
-            "${start.format(DETAIL_DATE)} - ${inclusiveEnd.format(DETAIL_DATE)}"
-        }
-        return "$dateLabel\nAll day"
-    }
-    return if (start.toLocalDate() == end.toLocalDate()) {
-        "${start.format(DETAIL_DATE)}\n${start.format(TIME)} - ${end.format(TIME)}"
-    } else {
-        "${start.format(DETAIL_DATE)} at ${start.format(TIME)}\n" +
-            "${end.format(DETAIL_DATE)} at ${end.format(TIME)}"
-    }
-}
-
 internal fun parseColor(value: String): Color = runCatching {
     Color(android.graphics.Color.parseColor(value))
 }.getOrDefault(Color(0xFF607D8B))
 
+private fun currentWeekStart(): LocalDate {
+    val today = LocalDate.now()
+    return today.minusDays((today.dayOfWeek.value % DAYS_PER_WEEK).toLong())
+}
+
 private const val DAYS_PER_WEEK = 7
 private const val HOURS_PER_DAY = 24
 private const val MINUTES_PER_HOUR = 60f
-private const val MINUTES_PER_DAY = 24f * 60f
 private const val DEFAULT_START_HOUR = 7
 private const val HOURS_BEFORE_NOW = 3
 private const val MAX_ALL_DAY_ROWS = 3
-private const val MIN_VISUAL_EVENT_MINUTES = 52f
 
 private val HOUR_HEIGHT = 52.dp
 private val TIMELINE_HEIGHT = HOUR_HEIGHT * HOURS_PER_DAY
@@ -613,7 +499,5 @@ private val MIN_EVENT_HEIGHT = 44.dp
 private val TODAY_BACKGROUND = Color(0xFFE7F0FA)
 
 private val DAY_NAME = DateTimeFormatter.ofPattern("EEE")
-private val MONTH_DAY = DateTimeFormatter.ofPattern("MMM d")
 private val HOUR_LABEL = DateTimeFormatter.ofPattern("h a")
 private val TIME = DateTimeFormatter.ofPattern("h:mm a")
-private val DETAIL_DATE = DateTimeFormatter.ofPattern("EEEE, MMMM d")

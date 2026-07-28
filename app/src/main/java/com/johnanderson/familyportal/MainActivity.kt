@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Settings
@@ -131,7 +132,8 @@ class MainActivity : ComponentActivity() {
         ) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
         }
-    }}
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -164,7 +166,11 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
         else -> 0
     }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(top = PORTAL_TOUCH_SAFE_INSET),
+        ) {
             PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
                 Tab(
                     selected = selectedTabIndex == 0,
@@ -239,9 +245,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                         weekStart = weekStart,
                         events = events,
                         syncState = syncState,
-                        onPreviousWeek = viewModel::previousWeek,
-                        onNextWeek = viewModel::nextWeek,
-                        onToday = viewModel::today,
+                        onWeekSelected = viewModel::selectWeek,
                         onRefresh = viewModel::refreshCalendars,
                     )
                 }
@@ -328,8 +332,11 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                 }
             },
         )
-    }}
+    }
+}
 
 private const val ROUTE_CALENDAR = "calendar"
 private const val ROUTE_CAMERAS = "cameras"
 private const val ROUTE_SETTINGS = "settings"
+// Portal firmware consumes touches in the top 48 dp even with system bars hidden.
+private val PORTAL_TOUCH_SAFE_INSET = 48.dp
