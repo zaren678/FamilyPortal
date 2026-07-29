@@ -12,6 +12,7 @@ import android.media.ToneGenerator
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
 import com.johnanderson.familyportal.FamilyPortalApplication
@@ -19,6 +20,7 @@ import com.johnanderson.familyportal.MainActivity
 import com.johnanderson.familyportal.R
 import com.johnanderson.familyportal.core.ConnectionState
 import com.johnanderson.familyportal.ha.DoorbellTransition
+import com.johnanderson.familyportal.ha.HomeAssistantAuthenticationException
 import com.johnanderson.familyportal.ha.doorbellTransition
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,8 +30,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
@@ -47,6 +51,7 @@ class DoorbellService : Service() {
         keepDoorbellStreamWarm()
         scope.launch {
             graph.homeAssistantClient.connectionState.collect {
+                Log.i(TAG, "Home Assistant event stream state=$it")
                 graph.coordinator.setHomeAssistantState(it)
             }
         }
@@ -87,18 +92,41 @@ class DoorbellService : Service() {
             graph.settingsRepository.settings
                 .distinctUntilChanged()
                 .flatMapLatest { settings ->
-                    val token = graph.homeAssistantAuthManager.accessToken()
-                    if (settings.homeAssistantUrl.isBlank() || token.isNullOrBlank()) emptyFlow()
-                    else graph.homeAssistantClient.stateChanges(settings.homeAssistantUrl, token)
-                        .map { settings to it }
-                        .retryWhen { _, attempt ->
-                            val backoff = (1_000L shl attempt.coerceAtMost(6).toInt()).coerceAtMost(60_000L)
-                            delay(backoff + Random.nextLong(0, 250))
-                            true
+                    if (settings.homeAssistantUrl.isBlank()) emptyFlow()
+                    else {
+                        var forceRefresh = false
+                        flow {
+                            val token = graph.homeAssistantAuthManager.accessToken(forceRefresh)
+                            forceRefresh = false
+                            if (!token.isNullOrBlank()) {
+                                emitAll(
+                                    graph.homeAssistantClient.stateChanges(
+                                        settings.homeAssistantUrl,
+                                        token,
+                                    ),
+                                )
+                            }
                         }
+                            .map { settings to it }
+                            .retryWhen { cause, attempt ->
+                                if (cause is HomeAssistantAuthenticationException) forceRefresh = true
+                                Log.w(TAG, "Home Assistant event stream failed; retrying", cause)
+                                val backoff = (1_000L shl attempt.coerceAtMost(6).toInt())
+                                    .coerceAtMost(60_000L)
+                                delay(backoff + Random.nextLong(0, 250))
+                                true
+                            }
+                    }
                 }
                 .collect { (settings, change) ->
-                    when (change.doorbellTransition(settings.doorbellSensorEntityId)) {
+                    val transition = change.doorbellTransition(settings.doorbellSensorEntityId)
+                    if (change.entityId == settings.doorbellSensorEntityId) {
+                        Log.i(
+                            TAG,
+                            "Doorbell sensor ${change.oldState} -> ${change.newState}; transition=$transition",
+                        )
+                    }
+                    when (transition) {
                         DoorbellTransition.START -> {
                             val doorbell = settings.cameras.firstOrNull { it.isDoorbell }
                                 ?: return@collect
@@ -192,6 +220,7 @@ class DoorbellService : Service() {
     }
 
     companion object {
+        private const val TAG = "FamilyPortalDoorbell"
         private const val SERVICE_CHANNEL = "doorbell_connection"
         private const val ALERT_CHANNEL = "doorbell_alerts"
         private const val SERVICE_NOTIFICATION_ID = 11

@@ -49,11 +49,11 @@ class HomeAssistantAuthManager(
         baseUrl
     }
 
-    suspend fun accessToken(): String? {
+    suspend fun accessToken(forceRefresh: Boolean = false): String? {
         val current = secureStore.get(SecureStore.HA_TOKEN) ?: return null
         val refreshToken = secureStore.get(SecureStore.HA_REFRESH_TOKEN) ?: return current
         val expiry = secureStore.get(SecureStore.HA_TOKEN_EXPIRY)?.toLongOrNull() ?: 0L
-        if (System.currentTimeMillis() < expiry - 60_000L) return current
+        if (!forceRefresh && System.currentTimeMillis() < expiry - 60_000L) return current
         val baseUrl = secureStore.get(SecureStore.HA_AUTH_BASE_URL) ?: return current
         val tokens = exchange(baseUrl, "refresh_token", refreshToken = refreshToken)
         store(tokens.copy(refreshToken = tokens.refreshToken ?: refreshToken))

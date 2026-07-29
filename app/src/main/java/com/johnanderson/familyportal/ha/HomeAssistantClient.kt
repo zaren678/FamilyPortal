@@ -29,6 +29,8 @@ data class HomeAssistantStateChange(
 
 enum class DoorbellTransition { START, STOP }
 
+class HomeAssistantAuthenticationException(message: String) : IOException(message)
+
 internal fun HomeAssistantStateChange.doorbellTransition(
     sensorEntityId: String,
 ): DoorbellTransition? {
@@ -70,7 +72,9 @@ class HomeAssistantClient(
                             }.toString(),
                         )
                     }
-                    "auth_invalid" -> close(IOException("Home Assistant rejected the token"))
+                    "auth_invalid" -> close(
+                        HomeAssistantAuthenticationException("Home Assistant rejected the token"),
+                    )
                     "event" -> root.toStateChange()?.let { trySend(it) }
                 }
             }
