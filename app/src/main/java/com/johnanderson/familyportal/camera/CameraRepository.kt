@@ -59,8 +59,11 @@ class CameraRepository(
         baseUrl: String,
         camera: CameraConfig,
         forceRefresh: Boolean = false,
+        useConfiguredRtsp: Boolean = true,
     ): String {
-        authManager.cameraRtsp(camera.id)?.takeIf(String::isNotBlank)?.let { return it }
+        if (useConfiguredRtsp) {
+            authManager.cameraRtsp(camera.id)?.takeIf(String::isNotBlank)?.let { return it }
+        }
         val key = streamKey(baseUrl, camera)
         if (!forceRefresh) cachedStream(key)?.let { return it }
         return streamLocks.getOrPut(key, ::Mutex).withLock {
@@ -78,12 +81,23 @@ class CameraRepository(
         streamCache.remove(streamKey(baseUrl, camera))
     }
 
-    suspend fun prewarmStream(baseUrl: String, camera: CameraConfig): Result<Unit> = runCatching {
-        if (authManager.cameraRtsp(camera.id)?.isNotBlank() == true) return@runCatching
-        var uri = streamUri(baseUrl, camera)
+    suspend fun prewarmStream(
+        baseUrl: String,
+        camera: CameraConfig,
+        useConfiguredRtsp: Boolean = true,
+    ): Result<Unit> = runCatching {
+        if (useConfiguredRtsp && authManager.cameraRtsp(camera.id)?.isNotBlank() == true) {
+            return@runCatching
+        }
+        var uri = streamUri(baseUrl, camera, useConfiguredRtsp = useConfiguredRtsp)
         if (!primeHls(uri)) {
             invalidateStream(baseUrl, camera)
-            uri = streamUri(baseUrl, camera, forceRefresh = true)
+            uri = streamUri(
+                baseUrl,
+                camera,
+                forceRefresh = true,
+                useConfiguredRtsp = useConfiguredRtsp,
+            )
             check(primeHls(uri)) { "Home Assistant HLS stream was unavailable" }
         }
     }

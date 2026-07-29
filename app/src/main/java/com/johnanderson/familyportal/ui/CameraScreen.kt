@@ -69,7 +69,16 @@ fun CameraScreen(
         while (true) {
             coroutineScope {
                 cameras.forEach { camera ->
-                    launch { repository.prewarmStream(homeAssistantUrl, camera) }
+                    val previewCamera = camera.copy(
+                        entityId = camera.previewEntityId.ifBlank { camera.entityId },
+                    )
+                    launch {
+                        repository.prewarmStream(
+                            homeAssistantUrl,
+                            previewCamera,
+                            useConfiguredRtsp = false,
+                        )
+                    }
                 }
             }
             delay(30_000L)
@@ -130,6 +139,7 @@ private fun LiveCameraTile(
                     homeAssistantUrl,
                     gridCamera,
                     forceRefresh = attempt > 0,
+                    useConfiguredRtsp = false,
                 )
             }
         }.onSuccess { streamUri = it }
@@ -250,11 +260,12 @@ fun CameraViewerOverlay(
         userScrollEnabled = cameras.size > 1,
     ) { page ->
         val camera = cameras[page]
+        val isInitialDoorbell = isDoorbell && camera.id == initialCameraId
         FullScreenCameraPage(
             camera = camera,
             homeAssistantUrl = homeAssistantUrl,
             repository = repository,
-            isDoorbell = isDoorbell && camera.id == initialCameraId,
+            isDoorbell = isInitialDoorbell,
             isMuted = isMuted,
             audioEnabled = !isMuted && page == pagerState.settledPage,
             onMuteChanged = { isMuted = it },
@@ -275,39 +286,43 @@ private fun FullScreenCameraPage(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    var streamUri by remember(camera.id, homeAssistantUrl) { mutableStateOf<String?>(null) }
-    var streamAttempt by remember(camera.id, homeAssistantUrl) { mutableStateOf(0) }
-    var playbackReady by remember(camera.id, homeAssistantUrl) { mutableStateOf(false) }
-    var playbackFailed by remember(camera.id, homeAssistantUrl) { mutableStateOf(false) }
-    var fallbackSnapshot by remember(camera.id, homeAssistantUrl) { mutableStateOf<ByteArray?>(null) }
+    val previewCamera = remember(camera) {
+        camera.copy(entityId = camera.previewEntityId.ifBlank { camera.entityId })
+    }
+    var streamUri by remember(camera.id, previewCamera.entityId, homeAssistantUrl) { mutableStateOf<String?>(null) }
+    var streamAttempt by remember(camera.id, previewCamera.entityId, homeAssistantUrl) { mutableStateOf(0) }
+    var playbackReady by remember(camera.id, previewCamera.entityId, homeAssistantUrl) { mutableStateOf(false) }
+    var playbackFailed by remember(camera.id, previewCamera.entityId, homeAssistantUrl) { mutableStateOf(false) }
+    var fallbackSnapshot by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf<ByteArray?>(null) }
     fun retryStream() {
         if (streamAttempt >= MAX_STREAM_ATTEMPTS) {
             playbackFailed = true
             return
         }
-        repository.invalidateStream(homeAssistantUrl, camera)
+        repository.invalidateStream(homeAssistantUrl, previewCamera)
         streamUri = null
         playbackReady = false
         streamAttempt += 1
     }
-    LaunchedEffect(camera.id, homeAssistantUrl, streamAttempt) {
+    LaunchedEffect(camera.id, previewCamera.entityId, homeAssistantUrl, streamAttempt) {
         val result = runCatching {
             withTimeout(30_000L) {
                 repository.streamUri(
                     homeAssistantUrl,
-                    camera,
+                    previewCamera,
                     forceRefresh = streamAttempt > 0,
+                    useConfiguredRtsp = false,
                 )
             }
         }
         result.onSuccess { streamUri = it }
             .onFailure {
-                Log.e("FamilyPortalCamera", "Stream request failed for ${camera.entityId}", it)
+                Log.e("FamilyPortalCamera", "Preview stream request failed for ${previewCamera.entityId}", it)
                 delay(1_000L)
                 retryStream()
             }
     }
-    val player = remember(camera.id, streamUri) {
+    val player = remember(camera.id, previewCamera.entityId, streamUri) {
         streamUri?.let { uri ->
             ExoPlayer.Builder(context)
                 .setAudioAttributes(CAMERA_AUDIO_ATTRIBUTES, false)
@@ -320,21 +335,57 @@ private fun FullScreenCameraPage(
                 }
         }
     }
-    LaunchedEffect(player, audioEnabled, camera.hasAudio) {
-        val shouldPlayAudio = audioEnabled && camera.hasAudio
-        player?.setAudioAttributes(CAMERA_AUDIO_ATTRIBUTES, shouldPlayAudio)
-        player?.volume = if (shouldPlayAudio) 1f else 0f
+    var qualityStreamUri by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf<String?>(null) }
+    var qualityAttempt by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf(0) }
+    var qualityReady by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf(false) }
+    var previewIsQuality by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf(false) }
+    LaunchedEffect(playbackReady, camera.id, camera.entityId, homeAssistantUrl, qualityAttempt) {
+        if (!playbackReady) return@LaunchedEffect
+        if (qualityAttempt > 0) delay(1_000L * qualityAttempt)
+        runCatching {
+            withTimeout(30_000L) {
+                repository.streamUri(
+                    homeAssistantUrl,
+                    camera,
+                    forceRefresh = qualityAttempt > 0,
+                )
+            }
+        }.onSuccess { uri ->
+            if (uri == streamUri) previewIsQuality = true else qualityStreamUri = uri
+        }.onFailure {
+            Log.e("FamilyPortalCamera", "Quality stream request failed for ${camera.entityId}", it)
+            if (qualityAttempt < MAX_QUALITY_STREAM_ATTEMPTS) qualityAttempt += 1
+        }
+    }
+    val qualityPlayer = remember(camera.id, camera.entityId, qualityStreamUri, qualityAttempt) {
+        qualityStreamUri?.let { uri ->
+            ExoPlayer.Builder(context)
+                .setAudioAttributes(CAMERA_AUDIO_ATTRIBUTES, false)
+                .build()
+                .apply {
+                    volume = 0f
+                    setMediaItem(MediaItem.fromUri(uri))
+                    playWhenReady = true
+                    prepare()
+                }
+        }
+    }
+    LaunchedEffect(player, qualityPlayer, qualityReady, previewIsQuality, audioEnabled, camera.hasAudio) {
+        val previewAudio = audioEnabled && camera.hasAudio && previewIsQuality
+        val qualityAudio = audioEnabled && camera.hasAudio && qualityReady
+        player?.setAudioAttributes(CAMERA_AUDIO_ATTRIBUTES, previewAudio)
+        player?.volume = if (previewAudio) 1f else 0f
+        qualityPlayer?.setAudioAttributes(CAMERA_AUDIO_ATTRIBUTES, qualityAudio)
+        qualityPlayer?.volume = if (qualityAudio) 1f else 0f
     }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) {
-                    playbackReady = true
-                    playbackFailed = false
-                }
+            override fun onRenderedFirstFrame() {
+                playbackReady = true
+                playbackFailed = false
             }
             override fun onPlayerError(error: PlaybackException) {
-                Log.e("FamilyPortalCamera", "Playback failed for ${camera.entityId}", error)
+                Log.e("FamilyPortalCamera", "Preview playback failed for ${previewCamera.entityId}", error)
                 retryStream()
             }
         }
@@ -343,6 +394,32 @@ private fun FullScreenCameraPage(
             player?.removeListener(listener)
             player?.release()
         }
+    }
+    DisposableEffect(qualityPlayer) {
+        val listener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                qualityReady = true
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                Log.e("FamilyPortalCamera", "Quality playback failed for ${camera.entityId}", error)
+                if (qualityReady) {
+                    player?.prepare()
+                    player?.play()
+                }
+                qualityReady = false
+                qualityStreamUri = null
+                if (qualityAttempt < MAX_QUALITY_STREAM_ATTEMPTS) qualityAttempt += 1
+            }
+        }
+        qualityPlayer?.addListener(listener)
+        onDispose {
+            qualityPlayer?.removeListener(listener)
+            qualityPlayer?.release()
+        }
+    }
+    LaunchedEffect(qualityReady) {
+        if (qualityReady) player?.stop()
     }
     LaunchedEffect(player) {
         if (player == null) return@LaunchedEffect
@@ -358,7 +435,23 @@ private fun FullScreenCameraPage(
         }
     }
     Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
-        if (!playbackFailed && player != null) {
+        if (qualityPlayer != null) {
+            AndroidView(
+                factory = {
+                    PlayerView(it).apply {
+                        this.player = qualityPlayer
+                        useController = false
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
+                    }
+                },
+                update = { it.player = qualityPlayer },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        if (!qualityReady && !playbackFailed && player != null) {
             AndroidView(
                 factory = {
                     PlayerView(it).apply {
@@ -370,9 +463,10 @@ private fun FullScreenCameraPage(
                         )
                     }
                 },
+                update = { it.player = player },
                 modifier = Modifier.fillMaxSize(),
             )
-        } else if (playbackFailed) {
+        } else if (!qualityReady && playbackFailed) {
             fallbackSnapshot?.let {
                 AsyncImage(
                     model = it,
@@ -429,4 +523,5 @@ private val CAMERA_AUDIO_ATTRIBUTES = AudioAttributes.Builder()
     .build()
 
 private const val MAX_STREAM_ATTEMPTS = 3
+private const val MAX_QUALITY_STREAM_ATTEMPTS = 2
 private const val CAMERA_TILE_ASPECT_RATIO = 1.9f

@@ -71,7 +71,11 @@ class DoorbellService : Service() {
                     entityId = doorbell.previewEntityId.ifBlank { doorbell.entityId },
                 )
                 while (true) {
-                    graph.cameraRepository.prewarmStream(settings.homeAssistantUrl, alertCamera)
+                    graph.cameraRepository.prewarmStream(
+                        settings.homeAssistantUrl,
+                        alertCamera,
+                        useConfiguredRtsp = false,
+                    )
                     delay(DOORBELL_PREWARM_INTERVAL_MILLIS)
                 }
             }
