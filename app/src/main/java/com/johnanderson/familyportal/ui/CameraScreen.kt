@@ -73,10 +73,9 @@ fun CameraScreen(
                         entityId = camera.previewEntityId.ifBlank { camera.entityId },
                     )
                     launch {
-                        repository.prewarmStream(
+                        repository.prewarmHomeAssistantStream(
                             homeAssistantUrl,
                             previewCamera,
-                            useConfiguredRtsp = false,
                         )
                     }
                 }
@@ -135,11 +134,10 @@ private fun LiveCameraTile(
         delay(if (attempt == 0) startupDelayMillis else (attempt * 1_000L).coerceAtMost(10_000L))
         runCatching {
             withTimeout(30_000L) {
-                repository.streamUri(
+                repository.homeAssistantStreamUri(
                     homeAssistantUrl,
                     gridCamera,
                     forceRefresh = attempt > 0,
-                    useConfiguredRtsp = false,
                 )
             }
         }.onSuccess { streamUri = it }
@@ -165,7 +163,7 @@ private fun LiveCameraTile(
             }
             override fun onPlayerError(error: PlaybackException) {
                 Log.e("FamilyPortalCamera", "Grid playback failed for ${gridCamera.entityId}", error)
-                repository.invalidateStream(homeAssistantUrl, gridCamera)
+                repository.invalidateHomeAssistantStream(homeAssistantUrl, gridCamera)
                 ready = false
                 streamUri = null
                 attempt += 1
@@ -181,7 +179,7 @@ private fun LiveCameraTile(
         if (player == null) return@LaunchedEffect
         delay(45_000L)
         if (!ready) {
-            repository.invalidateStream(homeAssistantUrl, gridCamera)
+            repository.invalidateHomeAssistantStream(homeAssistantUrl, gridCamera)
             streamUri = null
             attempt += 1
         }
@@ -206,6 +204,7 @@ private fun LiveCameraTile(
                         )
                     }
                 },
+                update = { it.player = player },
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -252,6 +251,9 @@ fun CameraViewerOverlay(
         initialPage = initialPage,
         pageCount = { cameras.size },
     )
+    LaunchedEffect(initialPage) {
+        if (pagerState.currentPage != initialPage) pagerState.scrollToPage(initialPage)
+    }
 
     HorizontalPager(
         state = pagerState,
@@ -299,7 +301,7 @@ private fun FullScreenCameraPage(
             playbackFailed = true
             return
         }
-        repository.invalidateStream(homeAssistantUrl, previewCamera)
+        repository.invalidateHomeAssistantStream(homeAssistantUrl, previewCamera)
         streamUri = null
         playbackReady = false
         streamAttempt += 1
@@ -307,11 +309,10 @@ private fun FullScreenCameraPage(
     LaunchedEffect(camera.id, previewCamera.entityId, homeAssistantUrl, streamAttempt) {
         val result = runCatching {
             withTimeout(30_000L) {
-                repository.streamUri(
+                repository.homeAssistantStreamUri(
                     homeAssistantUrl,
                     previewCamera,
                     forceRefresh = streamAttempt > 0,
-                    useConfiguredRtsp = false,
                 )
             }
         }
@@ -338,13 +339,23 @@ private fun FullScreenCameraPage(
     var qualityStreamUri by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf<String?>(null) }
     var qualityAttempt by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf(0) }
     var qualityReady by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf(false) }
-    var previewIsQuality by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf(false) }
-    LaunchedEffect(playbackReady, camera.id, camera.entityId, homeAssistantUrl, qualityAttempt) {
-        if (!playbackReady) return@LaunchedEffect
+    var previewIsQuality by remember(camera.id, previewCamera.entityId, camera.entityId, homeAssistantUrl) {
+        mutableStateOf(false)
+    }
+    var startQuality by remember(camera.id, previewCamera.entityId, camera.entityId, homeAssistantUrl) {
+        mutableStateOf(false)
+    }
+    LaunchedEffect(camera.id, previewCamera.entityId, camera.entityId, homeAssistantUrl) {
+        // Do not let a broken preview block an otherwise healthy main stream.
+        delay(QUALITY_FALLBACK_DELAY_MILLIS)
+        startQuality = true
+    }
+    LaunchedEffect(startQuality, camera.id, camera.entityId, homeAssistantUrl, qualityAttempt) {
+        if (!startQuality) return@LaunchedEffect
         if (qualityAttempt > 0) delay(1_000L * qualityAttempt)
         runCatching {
             withTimeout(30_000L) {
-                repository.streamUri(
+                repository.preferredStreamUri(
                     homeAssistantUrl,
                     camera,
                     forceRefresh = qualityAttempt > 0,
@@ -383,10 +394,11 @@ private fun FullScreenCameraPage(
             override fun onRenderedFirstFrame() {
                 playbackReady = true
                 playbackFailed = false
+                startQuality = true
             }
             override fun onPlayerError(error: PlaybackException) {
                 Log.e("FamilyPortalCamera", "Preview playback failed for ${previewCamera.entityId}", error)
-                retryStream()
+                if (!qualityReady) retryStream()
             }
         }
         player?.addListener(listener)
@@ -421,13 +433,13 @@ private fun FullScreenCameraPage(
     LaunchedEffect(qualityReady) {
         if (qualityReady) player?.stop()
     }
-    LaunchedEffect(player) {
-        if (player == null) return@LaunchedEffect
+    LaunchedEffect(player, qualityReady) {
+        if (player == null || qualityReady) return@LaunchedEffect
         delay(45_000L)
-        if (!playbackReady) retryStream()
+        if (!playbackReady && !qualityReady) retryStream()
     }
-    LaunchedEffect(camera.id, playbackFailed, homeAssistantUrl) {
-        if (!playbackFailed) return@LaunchedEffect
+    LaunchedEffect(camera.id, playbackFailed, qualityReady, homeAssistantUrl) {
+        if (!playbackFailed || qualityReady) return@LaunchedEffect
         while (true) {
             val result = runCatching { repository.snapshot(homeAssistantUrl, camera) }
             result.onSuccess { fallbackSnapshot = it }
@@ -488,7 +500,7 @@ private fun FullScreenCameraPage(
                 )
             }
         }
-        if (!playbackFailed && !playbackReady) {
+        if (!playbackFailed && !playbackReady && !qualityReady) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
         Text(
@@ -497,7 +509,9 @@ private fun FullScreenCameraPage(
             color = androidx.compose.ui.graphics.Color.White,
             style = MaterialTheme.typography.headlineMedium,
         )
-        if (!playbackFailed && player != null && camera.hasAudio) {
+        val audioAvailable = (!playbackFailed || qualityReady) &&
+            (player != null || qualityPlayer != null) && camera.hasAudio
+        if (audioAvailable) {
             FilledIconButton(
                 onClick = { onMuteChanged(!isMuted) },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
@@ -524,4 +538,5 @@ private val CAMERA_AUDIO_ATTRIBUTES = AudioAttributes.Builder()
 
 private const val MAX_STREAM_ATTEMPTS = 3
 private const val MAX_QUALITY_STREAM_ATTEMPTS = 2
+private const val QUALITY_FALLBACK_DELAY_MILLIS = 3_000L
 private const val CAMERA_TILE_ASPECT_RATIO = 1.9f

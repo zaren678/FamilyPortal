@@ -55,15 +55,20 @@ class CameraRepository(
         }
     }
 
-    suspend fun streamUri(
+    suspend fun preferredStreamUri(
         baseUrl: String,
         camera: CameraConfig,
         forceRefresh: Boolean = false,
-        useConfiguredRtsp: Boolean = true,
     ): String {
-        if (useConfiguredRtsp) {
-            authManager.cameraRtsp(camera.id)?.takeIf(String::isNotBlank)?.let { return it }
-        }
+        authManager.cameraRtsp(camera.id)?.takeIf(String::isNotBlank)?.let { return it }
+        return homeAssistantStreamUri(baseUrl, camera, forceRefresh)
+    }
+
+    suspend fun homeAssistantStreamUri(
+        baseUrl: String,
+        camera: CameraConfig,
+        forceRefresh: Boolean = false,
+    ): String {
         val key = streamKey(baseUrl, camera)
         if (!forceRefresh) cachedStream(key)?.let { return it }
         return streamLocks.getOrPut(key, ::Mutex).withLock {
@@ -77,26 +82,21 @@ class CameraRepository(
         }
     }
 
-    fun invalidateStream(baseUrl: String, camera: CameraConfig) {
+    fun invalidateHomeAssistantStream(baseUrl: String, camera: CameraConfig) {
         streamCache.remove(streamKey(baseUrl, camera))
     }
 
-    suspend fun prewarmStream(
+    suspend fun prewarmHomeAssistantStream(
         baseUrl: String,
         camera: CameraConfig,
-        useConfiguredRtsp: Boolean = true,
     ): Result<Unit> = runCatching {
-        if (useConfiguredRtsp && authManager.cameraRtsp(camera.id)?.isNotBlank() == true) {
-            return@runCatching
-        }
-        var uri = streamUri(baseUrl, camera, useConfiguredRtsp = useConfiguredRtsp)
+        var uri = homeAssistantStreamUri(baseUrl, camera)
         if (!primeHls(uri)) {
-            invalidateStream(baseUrl, camera)
-            uri = streamUri(
+            invalidateHomeAssistantStream(baseUrl, camera)
+            uri = homeAssistantStreamUri(
                 baseUrl,
                 camera,
                 forceRefresh = true,
-                useConfiguredRtsp = useConfiguredRtsp,
             )
             check(primeHls(uri)) { "Home Assistant HLS stream was unavailable" }
         }
@@ -177,7 +177,7 @@ class CameraRepository(
                             return
                         }
                         val resolved = resolveUrl(baseUrl, path)
-                        Log.i(TAG, "HLS stream resolved for $entityId: $resolved")
+                        Log.i(TAG, "HLS stream resolved for $entityId")
                         if (continuation.isActive) continuation.resume(resolved)
                         webSocket.close(1000, "Stream URL received")
                     }

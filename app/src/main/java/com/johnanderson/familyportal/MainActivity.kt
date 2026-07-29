@@ -29,6 +29,7 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +45,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -127,6 +130,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun FamilyPortalApp(viewModel: PortalViewModel) {
     val activity = LocalContext.current as Activity
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsState()
+    val appResumed = lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
     val appState by viewModel.appState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val displayCameras = remember(settings.cameras) {
@@ -247,7 +253,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                         cameras = displayCameras,
                         homeAssistantUrl = settings.homeAssistantUrl,
                         repository = viewModel.graph.cameraRepository,
-                        previewsActive = appState.overlay == null,
+                        previewsActive = appResumed && appState.overlay == null,
                         onCameraSelected = viewModel::openCamera,
                     )
                 }
@@ -292,7 +298,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
             }
         }
         val overlay = appState.overlay
-        if (overlay != null) {
+        if (overlay != null && appResumed) {
             val cameraId = when (overlay) {
                 is PortalOverlay.CameraViewer -> overlay.cameraId
                 is PortalOverlay.Doorbell -> overlay.cameraId
