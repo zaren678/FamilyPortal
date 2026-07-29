@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -24,11 +23,13 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,7 +37,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,7 +55,6 @@ import com.johnanderson.familyportal.core.PortalTab
 import com.johnanderson.familyportal.ha.HomeAssistantAuthActivity
 import com.johnanderson.familyportal.ha.HomeAssistantAuthManager
 import com.johnanderson.familyportal.service.DoorbellService
-import com.johnanderson.familyportal.service.WakeScheduler
 import com.johnanderson.familyportal.ui.CalendarScreen
 import com.johnanderson.familyportal.ui.CameraScreen
 import com.johnanderson.familyportal.ui.CameraViewerOverlay
@@ -65,10 +64,7 @@ import com.johnanderson.familyportal.ui.theme.FamilyPortalTheme
 
 class MainActivity : ComponentActivity() {
     private val portalViewModel: PortalViewModel by viewModels {
-        PortalViewModel.factory(
-            (application as FamilyPortalApplication).graph,
-            WakeScheduler(this),
-        )
+        PortalViewModel.factory((application as FamilyPortalApplication).graph)
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -104,18 +100,10 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         hideSystemUi()
-        portalViewModel.userActivity()
     }
-    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) portalViewModel.userActivity()
-        return super.dispatchTouchEvent(event)
-    }
-    fun applyDisplayState(sleeping: Boolean) {
-        if (sleeping) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        else window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.attributes = window.attributes.apply {
-            screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-        }
+    fun applyDoorbellWakeLock(active: Boolean) {
+        if (active) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
     private fun hideSystemUi() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -160,15 +148,17 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
     val route by navController.currentBackStackEntryAsState()
     var requestPin by remember { mutableStateOf(false) }
     var pinError by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(appState.isSleeping) {
-        (activity as MainActivity).applyDisplayState(appState.isSleeping)
+    val doorbellVisible = appState.overlay is PortalOverlay.Doorbell
+    LaunchedEffect(doorbellVisible) {
+        (activity as MainActivity).applyDoorbellWakeLock(doorbellVisible)
     }
     val selectedTabIndex = when (route?.destination?.route) {
         ROUTE_CAMERAS -> 1
         ROUTE_SETTINGS -> 2
         else -> 0
     }
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -295,7 +285,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                         onSaveHomeAssistant = viewModel::updateHomeAssistant,
                         onSaveCamera = viewModel::saveCamera,
                         onDeleteCamera = viewModel::deleteCamera,
-                        onSaveDisplay = viewModel::updateDisplaySettings,
+                        onSaveDoorbell = viewModel::updateDoorbellSettings,
                         onSetPin = viewModel.graph.settingsRepository::setPin,
                     )
                 }
@@ -317,9 +307,8 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                     onDismiss = viewModel::dismissOverlay,
                 )
             }
-        } else if (appState.isSleeping) {
-            Box(Modifier.fillMaxSize().background(Color.Black))
         }
+    }
     }
     if (requestPin) {
         PinDialog(

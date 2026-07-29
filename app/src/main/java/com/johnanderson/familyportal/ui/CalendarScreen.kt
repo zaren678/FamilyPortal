@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -224,8 +225,13 @@ private fun WeekTimeline(
 @Composable
 private fun DayHeader(day: LocalDate, modifier: Modifier = Modifier) {
     val today = day == LocalDate.now()
+    val backgroundColor = if (today) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
     Column(
-        modifier.background(if (today) TODAY_BACKGROUND else MaterialTheme.colorScheme.surface),
+        modifier.background(backgroundColor),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
@@ -250,6 +256,7 @@ private fun AllDayBand(
     rows: Int,
     onEventClick: (CalendarEventEntity) -> Unit,
 ) {
+    val todayBackground = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
     val bandHeight = ALL_DAY_ROW_HEIGHT * rows
     Row(Modifier.fillMaxWidth().height(bandHeight)) {
         Box(
@@ -268,7 +275,7 @@ private fun AllDayBand(
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .background(if (day == LocalDate.now()) TODAY_BACKGROUND else Color.Transparent)
+                    .background(if (day == LocalDate.now()) todayBackground else Color.Transparent)
                     .padding(horizontal = 2.dp),
             ) {
                 val visibleEvents = if (events.size > rows) events.take((rows - 1).coerceAtLeast(0)) else events
@@ -298,23 +305,25 @@ private fun AllDayBand(
 
 @Composable
 private fun AllDayEventChip(event: CalendarEventEntity, onClick: () -> Unit) {
+    val eventColor = parseColor(event.color)
+    val contentColor = contrastingContentColor(eventColor)
     Row(
         Modifier
             .fillMaxWidth()
             .height(ALL_DAY_ROW_HEIGHT)
             .padding(vertical = 2.dp)
             .clip(RoundedCornerShape(4.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(eventColor)
             .clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(4.dp).fillMaxHeight().background(parseColor(event.color)))
         Text(
             event.title,
             modifier = Modifier.padding(horizontal = 5.dp),
             style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, lineHeight = 17.sp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            color = contentColor,
         )
     }
 }
@@ -390,10 +399,15 @@ private fun DayTimeline(
     val currentTimeColor = MaterialTheme.colorScheme.error
     val today = day == LocalDate.now()
     val placements = remember(day, events) { layoutTimelineEvents(events, day) }
+    val backgroundColor = if (today) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
 
     BoxWithConstraints(
         modifier
-            .background(if (today) TODAY_BACKGROUND else MaterialTheme.colorScheme.surface)
+            .background(backgroundColor)
             .drawBehind {
                 val hourHeight = HOUR_HEIGHT.toPx()
                 for (hour in 0..HOURS_PER_DAY) {
@@ -450,13 +464,14 @@ private fun TimelineEventCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val eventColor = parseColor(event.color)
+    val contentColor = contrastingContentColor(eventColor)
     Row(
         modifier
             .clip(RoundedCornerShape(4.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(eventColor)
             .clickable(onClick = onClick),
     ) {
-        Box(Modifier.width(4.dp).fillMaxHeight().background(parseColor(event.color)))
         Column(Modifier.padding(horizontal = 5.dp, vertical = 3.dp)) {
             Text(
                 event.title,
@@ -466,6 +481,7 @@ private fun TimelineEventCard(
                 ),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                color = contentColor,
             )
             Text(
                 event.timeRangeLabel(),
@@ -475,6 +491,7 @@ private fun TimelineEventCard(
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                color = contentColor,
             )
         }
     }
@@ -490,6 +507,9 @@ private fun CalendarEventEntity.timeRangeLabel(): String {
 internal fun parseColor(value: String): Color = runCatching {
     Color(android.graphics.Color.parseColor(value))
 }.getOrDefault(Color(0xFF607D8B))
+
+internal fun contrastingContentColor(background: Color): Color =
+    if (background.luminance() > 0.5f) Color.Black else Color.White
 
 private fun currentWeekStart(): LocalDate {
     val today = LocalDate.now()
@@ -509,7 +529,6 @@ private val TIME_GUTTER_WIDTH = 56.dp
 private val DAY_HEADER_HEIGHT = 52.dp
 private val ALL_DAY_ROW_HEIGHT = 32.dp
 private val MIN_EVENT_HEIGHT = 44.dp
-private val TODAY_BACKGROUND = Color(0xFFE7F0FA)
 
 private val DAY_NAME = DateTimeFormatter.ofPattern("EEE")
 private val HOUR_LABEL = DateTimeFormatter.ofPattern("h a")

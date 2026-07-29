@@ -1,6 +1,8 @@
 package com.johnanderson.familyportal
 
 import com.johnanderson.familyportal.calendar.CalendarEventEntity
+import androidx.compose.ui.graphics.Color
+import com.johnanderson.familyportal.ui.contrastingContentColor
 import com.johnanderson.familyportal.ui.layoutTimelineEvents
 import com.johnanderson.familyportal.ui.pagerPageForWeek
 import com.johnanderson.familyportal.ui.weekForPagerPage

@@ -20,7 +20,6 @@ data class AppUiState(
     val selectedTab: PortalTab = PortalTab.CALENDAR,
     val overlay: PortalOverlay? = null,
     val homeAssistantState: ConnectionState = ConnectionState.DISCONNECTED,
-    val isSleeping: Boolean = false,
 )
 
 @Serializable
@@ -40,7 +39,5 @@ data class AppSettings(
     val homeAssistantRevision: Int = 0,
     val doorbellSensorEntityId: String = "",
     val cameras: List<CameraConfig> = emptyList(),
-    val activeStartMinutes: Int = 7 * 60,
-    val activeEndMinutes: Int = 22 * 60,
     val alertDurationSeconds: Int = 30,
 )

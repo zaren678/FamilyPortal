@@ -76,16 +76,10 @@ fun SettingsScreen(
     onSaveHomeAssistant: (String, String, String) -> Unit,
     onSaveCamera: (String?, String, String, String, String, Boolean, Boolean) -> Unit,
     onDeleteCamera: (String) -> Unit,
-    onSaveDisplay: (Int, Int, Int) -> Unit,
+    onSaveDoorbell: (Int) -> Unit,
     onSetPin: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var startTime by rememberSaveable(settings.activeStartMinutes) {
-        mutableStateOf(formatMinutes(settings.activeStartMinutes))
-    }
-    var endTime by rememberSaveable(settings.activeEndMinutes) {
-        mutableStateOf(formatMinutes(settings.activeEndMinutes))
-    }
     var alertSeconds by rememberSaveable(settings.alertDurationSeconds) {
         mutableStateOf(settings.alertDurationSeconds.toString())
     }
@@ -186,23 +180,13 @@ fun SettingsScreen(
                 Text(" Add camera")
             }
         }
-        item { HorizontalDivider(); SectionTitle("Display schedule") }
+        item { HorizontalDivider(); SectionTitle("Doorbell alerts") }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = startTime,
-                    onValueChange = { startTime = it },
-                    label = { Text("Wake time") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = endTime,
-                    onValueChange = { endTime = it },
-                    label = { Text("Sleep time") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 OutlinedTextField(
                     value = alertSeconds,
                     onValueChange = { alertSeconds = it.filter(Char::isDigit) },
@@ -211,24 +195,10 @@ fun SettingsScreen(
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                 )
-            }
-        }
-        item {
-            Button(
-                onClick = {
-                    val start = parseTime(startTime)
-                    val end = parseTime(endTime)
-                    if (start != null && end != null) {
-                        onSaveDisplay(
-                            start,
-                            end,
-                            alertSeconds.toIntOrNull() ?: 30,
-                        )
-                    }
-                },
-            ) {
-                Icon(Icons.Default.Save, null)
-                Text(" Save schedule")
+                Button(onClick = { onSaveDoorbell(alertSeconds.toIntOrNull() ?: 30) }) {
+                    Icon(Icons.Default.Save, null)
+                    Text(" Save")
+                }
             }
         }
         item { HorizontalDivider(); SectionTitle("Security") }
@@ -378,15 +348,4 @@ fun PinDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
-}
-
-private fun formatMinutes(minutes: Int): String = "%02d:%02d".format(minutes / 60, minutes % 60)
-
-private fun parseTime(value: String): Int? {
-    val parts = value.split(':')
-    if (parts.size != 2) return null
-    val hour = parts[0].toIntOrNull() ?: return null
-    val minute = parts[1].toIntOrNull() ?: return null
-    if (hour !in 0..23 || minute !in 0..59) return null
-    return hour * 60 + minute
 }

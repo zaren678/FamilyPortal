@@ -10,24 +10,19 @@ import com.johnanderson.familyportal.calendar.GoogleDeviceAuthorization
 import com.johnanderson.familyportal.core.AppSettings
 import com.johnanderson.familyportal.core.CameraConfig
 import com.johnanderson.familyportal.core.PortalTab
-import com.johnanderson.familyportal.service.WakeScheduler
 import com.johnanderson.familyportal.ha.DiscoveredHomeAssistant
 import com.johnanderson.familyportal.ha.HomeAssistantCatalog
 import com.johnanderson.familyportal.ha.isLikelyCameraSubstream
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
@@ -36,7 +31,6 @@ import java.util.UUID
 @OptIn(ExperimentalCoroutinesApi::class)
 class PortalViewModel(
     val graph: AppGraph,
-    private val wakeScheduler: WakeScheduler,
 ) : ViewModel() {
     val appState = graph.coordinator.state
     val settings: StateFlow<AppSettings> = graph.settingsRepository.settings.stateIn(
@@ -74,14 +68,9 @@ class PortalViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    private var idleJob: Job? = null
-    private var manualWakeUntilMillis: Long = 0L
-
     init {
         viewModelScope.launch {
             settings.collect { value ->
-                evaluateSchedule(value)
-                wakeScheduler.schedule(value.activeStartMinutes)
                 if (value.homeAssistantUrl.isNotBlank() && _homeAssistantCatalog.value == null) {
                     loadHomeAssistantCatalog(value.homeAssistantUrl)
                 }
@@ -96,34 +85,12 @@ class PortalViewModel(
         }
         viewModelScope.launch {
             while (true) {
-                if (graph.googleAuthManager.isAuthorized && isActiveHours(settings.value)) {
+                if (graph.googleAuthManager.isAuthorized) {
                     graph.calendarRepository.syncNow()
                 }
                 delay(10 * 60 * 1_000L)
             }
         }
-        viewModelScope.launch {
-            while (true) {
-                evaluateSchedule(settings.value)
-                delay(60_000L)
-            }
-        }
-        userActivity()
-    }
-
-    fun userActivity() {
-        val current = settings.value
-        val activeHours = isActiveHours(current)
-        if (!activeHours) manualWakeUntilMillis = System.currentTimeMillis() + MANUAL_WAKE_MILLIS
-        graph.coordinator.setDisplayState(sleeping = false)
-        idleJob?.cancel()
-        idleJob = if (!activeHours) {
-            viewModelScope.launch {
-                delay(MANUAL_WAKE_MILLIS)
-                manualWakeUntilMillis = 0L
-                graph.coordinator.setDisplayState(sleeping = true)
-            }
-        } else null
     }
 
     fun selectWeek(start: LocalDate) { _weekStart.value = start }
@@ -289,36 +256,12 @@ class PortalViewModel(
         }
     }
 
-    fun updateDisplaySettings(
-        startMinutes: Int,
-        endMinutes: Int,
-        alertSeconds: Int,
-    ) =
+    fun updateDoorbellSettings(alertSeconds: Int) =
         viewModelScope.launch {
             graph.settingsRepository.update {
-                it.copy(
-                    activeStartMinutes = startMinutes,
-                    activeEndMinutes = endMinutes,
-                    alertDurationSeconds = alertSeconds.coerceIn(10, 120),
-                )
+                it.copy(alertDurationSeconds = alertSeconds.coerceIn(10, 120))
             }
         }
-
-    private fun evaluateSchedule(value: AppSettings) {
-        if (!isActiveHours(value) && System.currentTimeMillis() >= manualWakeUntilMillis) {
-            graph.coordinator.setDisplayState(sleeping = true)
-        } else if (appState.value.isSleeping) {
-            graph.coordinator.setDisplayState(sleeping = false)
-        }
-    }
-
-    private fun isActiveHours(value: AppSettings): Boolean {
-        val now = java.time.LocalTime.now()
-        val minute = now.hour * 60 + now.minute
-        val start = value.activeStartMinutes
-        val end = value.activeEndMinutes
-        return if (start <= end) minute in start until end else minute >= start || minute < end
-    }
 
     private fun normalizeHomeAssistantUrl(value: String): String {
         val trimmed = value.trim().trimEnd('/')
@@ -338,13 +281,12 @@ class PortalViewModel(
         private fun currentSunday(): LocalDate = LocalDate.now()
             .with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
 
-        fun factory(graph: AppGraph, wakeScheduler: WakeScheduler): ViewModelProvider.Factory =
+        fun factory(graph: AppGraph): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    PortalViewModel(graph, wakeScheduler) as T
+                    PortalViewModel(graph) as T
             }
 
-        private const val MANUAL_WAKE_MILLIS = 5 * 60 * 1_000L
     }
 }

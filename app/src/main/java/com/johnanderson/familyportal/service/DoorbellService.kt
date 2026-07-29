@@ -33,7 +33,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
-import java.time.LocalTime
 import kotlin.random.Random
 
 class DoorbellService : Service() {
@@ -100,16 +99,12 @@ class DoorbellService : Service() {
                         DoorbellTransition.START -> {
                             val doorbell = settings.cameras.firstOrNull { it.isDoorbell }
                                 ?: return@collect
-                            val activeHours = isWithinActiveHours(
-                                settings.activeStartMinutes,
-                                settings.activeEndMinutes,
-                            )
                             graph.coordinator.startDoorbell(
                                 cameraId = doorbell.id,
-                                playChime = activeHours,
+                                playChime = true,
                                 maxDurationSeconds = DOORBELL_MAX_DURATION_SECONDS,
                             )
-                            wakeForAlert(activeHours, settings.alertDurationSeconds)
+                            wakeForAlert(playChime = true, durationSeconds = settings.alertDurationSeconds)
                         }
                         DoorbellTransition.STOP -> graph.coordinator.finishDoorbell(
                             postRollSeconds = settings.alertDurationSeconds,
@@ -142,11 +137,6 @@ class DoorbellService : Service() {
             delay(durationSeconds * 1_000L)
             getSystemService<NotificationManager>()?.cancel(ALERT_NOTIFICATION_ID)
         }
-    }
-
-    private fun isWithinActiveHours(start: Int, end: Int): Boolean {
-        val now = LocalTime.now().hour * 60 + LocalTime.now().minute
-        return if (start <= end) now in start until end else now >= start || now < end
     }
 
     private fun serviceNotification(): Notification = NotificationCompat.Builder(this, SERVICE_CHANNEL)
