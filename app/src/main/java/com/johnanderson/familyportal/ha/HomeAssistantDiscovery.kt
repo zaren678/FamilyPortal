@@ -65,11 +65,14 @@ class HomeAssistantDiscovery(context: Context) {
             override fun onDiscoveryStopped(serviceType: String) = Unit
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = startJmDnsFallback()
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
-            override fun onServiceFound(serviceInfo: NsdServiceInfo) {
-                if (resolving.add(serviceInfo.serviceName)) resolve(serviceInfo)
+            override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
+                serviceInfo ?: return
+                val serviceName = serviceInfo.serviceName?.takeIf(String::isNotBlank) ?: return
+                if (resolving.add(serviceName)) resolve(serviceInfo, serviceName)
             }
-            override fun onServiceLost(serviceInfo: NsdServiceInfo) {
-                services.remove(serviceInfo.serviceName)
+            override fun onServiceLost(serviceInfo: NsdServiceInfo?) {
+                val serviceName = serviceInfo?.serviceName?.takeIf(String::isNotBlank) ?: return
+                services.remove(serviceName)
                 publish()
             }
         }
@@ -103,16 +106,30 @@ class HomeAssistantDiscovery(context: Context) {
         scope.cancel()
     }
 
-    private fun resolve(serviceInfo: NsdServiceInfo) {
+    private fun resolve(serviceInfo: NsdServiceInfo, requestedName: String) {
         nsdManager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
-            override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                resolving.remove(serviceInfo.serviceName)
+            override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
+                val serviceName = serviceInfo?.serviceName?.takeIf(String::isNotBlank)
+                resolving.remove(serviceName ?: requestedName)
             }
-            override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-                resolving.remove(serviceInfo.serviceName)
-                val attributes = serviceInfo.attributes.mapValues { (_, value) -> value.toString(Charsets.UTF_8) }
+            override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
+                resolving.remove(requestedName)
+                if (serviceInfo == null) {
+                    Log.w(TAG, "NSD returned a null service for $requestedName; using fallback discovery")
+                    startJmDnsFallback()
+                    return
+                }
+                val attributes = serviceInfo.attributes?.mapNotNull { (key, value) ->
+                    val attributeName = key?.takeIf(String::isNotBlank)
+                        ?: return@mapNotNull null
+                    val attributeValue = value?.toString(Charsets.UTF_8)
+                        ?: return@mapNotNull null
+                    attributeName to attributeValue
+                }?.toMap().orEmpty()
                 val host = serviceInfo.host?.hostAddress ?: return
-                addService(serviceInfo.serviceName, host, serviceInfo.port, attributes)
+                val serviceName = serviceInfo.serviceName?.takeIf(String::isNotBlank)
+                    ?: requestedName
+                addService(serviceName, host, serviceInfo.port, attributes)
             }
         })
     }
