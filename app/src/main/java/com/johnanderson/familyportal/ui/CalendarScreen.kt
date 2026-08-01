@@ -305,8 +305,8 @@ private fun AllDayBand(
 
 @Composable
 private fun AllDayEventChip(event: CalendarEventEntity, onClick: () -> Unit) {
-    val eventColor = parseColor(event.color)
-    val contentColor = contrastingContentColor(eventColor)
+    val eventColor = eventBackgroundColor(event.color)
+    val contentColor = EVENT_CONTENT_COLOR
     Row(
         Modifier
             .fillMaxWidth()
@@ -320,7 +320,7 @@ private fun AllDayEventChip(event: CalendarEventEntity, onClick: () -> Unit) {
         Text(
             event.title,
             modifier = Modifier.padding(horizontal = 5.dp),
-            style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, lineHeight = 17.sp),
+            style = MaterialTheme.typography.labelLarge.copy(fontSize = 18.sp, lineHeight = 21.sp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             color = contentColor,
@@ -464,8 +464,8 @@ private fun TimelineEventCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val eventColor = parseColor(event.color)
-    val contentColor = contrastingContentColor(eventColor)
+    val eventColor = eventBackgroundColor(event.color)
+    val contentColor = EVENT_CONTENT_COLOR
     Row(
         modifier
             .clip(RoundedCornerShape(4.dp))
@@ -476,8 +476,8 @@ private fun TimelineEventCard(
             Text(
                 event.title,
                 style = MaterialTheme.typography.labelLarge.copy(
-                    fontSize = 16.sp,
-                    lineHeight = 18.sp,
+                    fontSize = 18.sp,
+                    lineHeight = 21.sp,
                 ),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -486,8 +486,8 @@ private fun TimelineEventCard(
             Text(
                 event.timeRangeLabel(),
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 13.sp,
-                    lineHeight = 15.sp,
+                    fontSize = 15.sp,
+                    lineHeight = 18.sp,
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -508,8 +508,38 @@ internal fun parseColor(value: String): Color = runCatching {
     Color(android.graphics.Color.parseColor(value))
 }.getOrDefault(Color(0xFF607D8B))
 
-internal fun contrastingContentColor(background: Color): Color =
-    if (background.luminance() > 0.5f) Color.Black else Color.White
+internal fun eventBackgroundColor(value: String): Color {
+    val original = parseColor(value)
+    if (contrastRatio(original, EVENT_CONTENT_COLOR) >= MIN_TEXT_CONTRAST) {
+        return original
+    }
+
+    var readableFactor = 0f
+    var unreadableFactor = 1f
+    repeat(12) {
+        val factor = (readableFactor + unreadableFactor) / 2f
+        val candidate = original.scaledRgb(factor)
+        if (contrastRatio(candidate, EVENT_CONTENT_COLOR) >= MIN_TEXT_CONTRAST) {
+            readableFactor = factor
+        } else {
+            unreadableFactor = factor
+        }
+    }
+    return original.scaledRgb(readableFactor)
+}
+
+internal fun contrastRatio(first: Color, second: Color): Float {
+    val lighter = max(first.luminance(), second.luminance())
+    val darker = minOf(first.luminance(), second.luminance())
+    return (lighter + 0.05f) / (darker + 0.05f)
+}
+
+private fun Color.scaledRgb(factor: Float): Color = Color(
+    red = red * factor,
+    green = green * factor,
+    blue = blue * factor,
+    alpha = alpha,
+)
 
 private fun currentWeekStart(): LocalDate {
     val today = LocalDate.now()
@@ -517,6 +547,8 @@ private fun currentWeekStart(): LocalDate {
 }
 
 private const val DAYS_PER_WEEK = 7
+private const val MIN_TEXT_CONTRAST = 4.5f
+private val EVENT_CONTENT_COLOR = Color.White
 private const val HOURS_PER_DAY = 24
 private const val MINUTES_PER_HOUR = 60f
 private const val DEFAULT_START_HOUR = 7
@@ -527,8 +559,8 @@ private val HOUR_HEIGHT = 52.dp
 private val TIMELINE_HEIGHT = HOUR_HEIGHT * HOURS_PER_DAY
 private val TIME_GUTTER_WIDTH = 56.dp
 private val DAY_HEADER_HEIGHT = 52.dp
-private val ALL_DAY_ROW_HEIGHT = 32.dp
-private val MIN_EVENT_HEIGHT = 44.dp
+private val ALL_DAY_ROW_HEIGHT = 36.dp
+private val MIN_EVENT_HEIGHT = 50.dp
 
 private val DAY_NAME = DateTimeFormatter.ofPattern("EEE")
 private val HOUR_LABEL = DateTimeFormatter.ofPattern("h a")

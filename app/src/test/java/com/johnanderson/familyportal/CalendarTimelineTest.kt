@@ -2,7 +2,8 @@ package com.johnanderson.familyportal
 
 import com.johnanderson.familyportal.calendar.CalendarEventEntity
 import androidx.compose.ui.graphics.Color
-import com.johnanderson.familyportal.ui.contrastingContentColor
+import com.johnanderson.familyportal.ui.contrastRatio
+import com.johnanderson.familyportal.ui.eventBackgroundColor
 import com.johnanderson.familyportal.ui.layoutTimelineEvents
 import com.johnanderson.familyportal.ui.pagerPageForWeek
 import com.johnanderson.familyportal.ui.weekForPagerPage
@@ -35,6 +36,20 @@ class CalendarTimelineTest {
         assertEquals(base, weekForPagerPage(base, 5_000))
         assertEquals(base.plusWeeks(1), weekForPagerPage(base, 5_001))
         assertEquals(5_001, pagerPageForWeek(base, base.plusWeeks(1)))
+    }
+
+    @Test
+    fun brightPinkIsTonedForReadableWhiteText() {
+        val background = eventBackgroundColor("#FF4081")
+
+        assertTrue(contrastRatio(background, Color.White) >= 4.5f)
+    }
+
+    @Test
+    fun brightCyanIsTonedForReadableWhiteText() {
+        val background = eventBackgroundColor("#00BCD4")
+
+        assertTrue(contrastRatio(background, Color.White) >= 4.5f)
     }
 
     @Test

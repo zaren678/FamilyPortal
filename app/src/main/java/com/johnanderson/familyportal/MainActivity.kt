@@ -252,8 +252,8 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                             Text(
                                 "Calendar",
                                 style = MaterialTheme.typography.labelLarge.copy(
-                                    fontSize = 16.sp,
-                                    lineHeight = 20.sp,
+                                    fontSize = 18.sp,
+                                    lineHeight = 22.sp,
                                 ),
                             )
                         }
@@ -274,8 +274,8 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                             Text(
                                 "Cameras",
                                 style = MaterialTheme.typography.labelLarge.copy(
-                                    fontSize = 16.sp,
-                                    lineHeight = 20.sp,
+                                    fontSize = 18.sp,
+                                    lineHeight = 22.sp,
                                 ),
                             )
                         }
@@ -296,8 +296,8 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                             Text(
                                 "Settings",
                                 style = MaterialTheme.typography.labelLarge.copy(
-                                    fontSize = 16.sp,
-                                    lineHeight = 20.sp,
+                                    fontSize = 18.sp,
+                                    lineHeight = 22.sp,
                                 ),
                             )
                         }

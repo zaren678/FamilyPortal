@@ -130,6 +130,6 @@ internal const val WEEK_PAGER_INITIAL_PAGE = WEEK_PAGER_PAGE_COUNT / 2
 
 private const val DAYS_PER_WEEK = 7
 private const val MINUTES_PER_DAY = 24f * 60f
-private const val MIN_VISUAL_EVENT_MINUTES = 52f
+private const val MIN_VISUAL_EVENT_MINUTES = 60f
 private val MONTH_DAY = DateTimeFormatter.ofPattern("MMM d")
 private val MONTH_DAY_YEAR = DateTimeFormatter.ofPattern("MMM d, yyyy")
