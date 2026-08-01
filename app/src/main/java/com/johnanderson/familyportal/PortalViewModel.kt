@@ -11,8 +11,9 @@ import com.johnanderson.familyportal.core.AppSettings
 import com.johnanderson.familyportal.core.CameraConfig
 import com.johnanderson.familyportal.core.PortalTab
 import com.johnanderson.familyportal.ha.DiscoveredHomeAssistant
+import com.johnanderson.familyportal.ha.HomeAssistantCameraChoice
 import com.johnanderson.familyportal.ha.HomeAssistantCatalog
-import com.johnanderson.familyportal.ha.isLikelyCameraSubstream
+import com.johnanderson.familyportal.ha.findLogicalCamera
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -169,37 +170,33 @@ class PortalViewModel(
         graph.settingsRepository.update { it.copy(doorbellSensorEntityId = entityId) }
     }
 
-    fun addDiscoveredCamera(entityId: String, name: String, doorbell: Boolean) =
-        saveCamera(null, name, entityId, "", "", false, doorbell)
+    fun addDiscoveredCamera(camera: HomeAssistantCameraChoice, doorbell: Boolean) =
+        saveCamera(
+            existingId = null,
+            name = camera.main.name,
+            entityId = camera.main.entityId,
+            previewEntityId = camera.preview?.entityId.orEmpty(),
+            rtspUri = "",
+            hasAudio = false,
+            doorbell = doorbell,
+        )
 
     private suspend fun pairDiscoveredCameraStreams(catalog: HomeAssistantCatalog) {
         graph.settingsRepository.update { current ->
             val paired = current.cameras.map { camera ->
-                val baseName = cameraBaseName(camera.name)
-                val substream = catalog.cameras.firstOrNull { choice ->
-                    choice.entityId != camera.entityId &&
-                        choice.isLikelyCameraSubstream() &&
-                        cameraBaseName(choice.name) == baseName
-                }
-                val currentMainExists = catalog.cameras.any { it.entityId == camera.entityId }
-                val main = if (currentMainExists) null else catalog.cameras.firstOrNull { choice ->
-                    !choice.isLikelyCameraSubstream() &&
-                        cameraBaseName(choice.name) == baseName
-                }
+                val discovered = catalog.findLogicalCamera(
+                    entityId = camera.entityId,
+                    previewEntityId = camera.previewEntityId,
+                    name = camera.name,
+                ) ?: return@map camera
                 camera.copy(
-                    entityId = main?.entityId ?: camera.entityId,
-                    previewEntityId = substream?.entityId ?: camera.previewEntityId,
+                    entityId = discovered.main.entityId,
+                    previewEntityId = discovered.preview?.entityId ?: camera.previewEntityId,
                 )
             }
             current.copy(cameras = paired)
         }
     }
-
-    private fun cameraBaseName(name: String): String = name
-        .lowercase()
-        .replace(Regex("""\b(main|sub|stream|low|resolution)\b"""), " ")
-        .replace(Regex("[^a-z0-9]+"), " ")
-        .trim()
 
     fun updateHomeAssistant(url: String, token: String, sensor: String) = viewModelScope.launch {
         if (token.isNotBlank()) {
@@ -237,6 +234,17 @@ class PortalViewModel(
                     hasAudio = hasAudio,
                     isDoorbell = doorbell,
                 )
+                val updatedEntityIds = setOf(updated.entityId, updated.previewEntityId)
+                    .filter(String::isNotBlank)
+                    .toSet()
+                if (existingId == null && current.cameras.any { camera ->
+                        setOf(camera.entityId, camera.previewEntityId)
+                            .filter(String::isNotBlank)
+                            .any(updatedEntityIds::contains)
+                    }
+                ) {
+                    return@update current
+                }
                 val normalized = current.cameras.map { camera ->
                     if (doorbell) camera.copy(isDoorbell = false) else camera
                 }

@@ -47,7 +47,10 @@ import com.johnanderson.familyportal.core.AppSettings
 import com.johnanderson.familyportal.core.CameraConfig
 import com.johnanderson.familyportal.core.ConnectionState
 import com.johnanderson.familyportal.ha.DiscoveredHomeAssistant
+import com.johnanderson.familyportal.ha.HomeAssistantCameraChoice
+import com.johnanderson.familyportal.ha.HomeAssistantEntityChoice
 import com.johnanderson.familyportal.ha.HomeAssistantCatalog
+import com.johnanderson.familyportal.ha.isLikelyCameraSubstream
 
 @Composable
 fun SettingsScreen(
@@ -72,7 +75,7 @@ fun SettingsScreen(
     onAuthorizeHomeAssistant: (String) -> Unit,
     onRefreshHomeAssistantEntities: () -> Unit,
     onSelectDoorbellSensor: (String) -> Unit,
-    onAddDiscoveredCamera: (String, String, Boolean) -> Unit,
+    onAddDiscoveredCamera: (HomeAssistantCameraChoice, Boolean) -> Unit,
     onSaveHomeAssistant: (String, String, String) -> Unit,
     onSaveCamera: (String?, String, String, String, String, Boolean, Boolean) -> Unit,
     onDeleteCamera: (String) -> Unit,
@@ -237,6 +240,7 @@ fun SettingsScreen(
     if (showCameraDialog) {
         CameraEditDialog(
             existing = editingCamera,
+            cameraEntities = homeAssistantCatalog?.cameras.orEmpty(),
             onDismiss = { showCameraDialog = false },
             onSave = { id, name, entity, previewEntity, rtsp, hasAudio, doorbell ->
                 onSaveCamera(id, name, entity, previewEntity, rtsp, hasAudio, doorbell)
@@ -261,6 +265,7 @@ private fun SectionTitle(text: String) {
 @Composable
 private fun CameraEditDialog(
     existing: CameraConfig?,
+    cameraEntities: List<HomeAssistantEntityChoice>,
     onDismiss: () -> Unit,
     onSave: (String?, String, String, String, String, Boolean, Boolean) -> Unit,
 ) {
@@ -270,53 +275,110 @@ private fun CameraEditDialog(
         mutableStateOf(existing?.previewEntityId.orEmpty())
     }
     var rtsp by rememberSaveable(existing?.id) { mutableStateOf("") }
+    var showMainPicker by remember { mutableStateOf(false) }
+    var showPreviewPicker by remember { mutableStateOf(false) }
     var hasAudio by rememberSaveable(existing?.id) { mutableStateOf(existing?.hasAudio == true) }
     var doorbell by rememberSaveable(existing?.id) { mutableStateOf(existing?.isDoorbell == true) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (existing == null) "Add camera" else "Edit camera") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true)
-                OutlinedTextField(
-                    entity,
-                    { entity = it },
-                    label = { Text("HA camera entity") },
-                    placeholder = { Text("camera.front_door") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    previewEntity,
-                    { previewEntity = it },
-                    label = { Text("HA grid/substream entity") },
-                    placeholder = { Text("camera.front_door_sub") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    rtsp,
-                    { rtsp = it },
-                    label = { Text(if (existing == null) "RTSP URL" else "New RTSP URL (optional)") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Has audio", Modifier.weight(1f))
-                    Switch(hasAudio, { hasAudio = it })
+    if (!showMainPicker && !showPreviewPicker) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(if (existing == null) "Add camera" else "Edit camera") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true)
+                    CameraEntitySelectionRow(
+                        label = "HA camera entity",
+                        entityId = entity,
+                        entities = cameraEntities,
+                        onChoose = { showMainPicker = true },
+                    )
+                    CameraEntitySelectionRow(
+                        label = "HA grid/substream entity",
+                        entityId = previewEntity,
+                        entities = cameraEntities,
+                        onChoose = { showPreviewPicker = true },
+                        onClear = { previewEntity = "" },
+                    )
+                    OutlinedTextField(
+                        rtsp,
+                        { rtsp = it },
+                        label = { Text(if (existing == null) "RTSP URL" else "New RTSP URL (optional)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Has audio", Modifier.weight(1f))
+                        Switch(hasAudio, { hasAudio = it })
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Use for doorbell alerts", Modifier.weight(1f))
+                        Switch(doorbell, { doorbell = it })
+                    }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Use for doorbell alerts", Modifier.weight(1f))
-                    Switch(doorbell, { doorbell = it })
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = name.isNotBlank() && entity.isNotBlank() && (existing != null || rtsp.isNotBlank()),
-                onClick = { onSave(existing?.id, name, entity, previewEntity, rtsp, hasAudio, doorbell) },
-            ) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = name.isNotBlank() && entity.isNotBlank() && (existing != null || rtsp.isNotBlank()),
+                    onClick = { onSave(existing?.id, name, entity, previewEntity, rtsp, hasAudio, doorbell) },
+                ) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        )
+    }
+
+    if (showMainPicker) {
+        HomeAssistantEntityPickerDialog(
+            title = "Choose main camera",
+            entities = cameraEntities.filterNot { it.isLikelyCameraSubstream() },
+            selectedEntityId = entity,
+            emptyText = "No main camera entities found",
+            onDismiss = { showMainPicker = false },
+            onSelect = {
+                entity = it.entityId
+                showMainPicker = false
+            },
+        )
+    }
+    if (showPreviewPicker) {
+        HomeAssistantEntityPickerDialog(
+            title = "Choose grid preview",
+            entities = cameraEntities.filter { it.isLikelyCameraSubstream() },
+            selectedEntityId = previewEntity,
+            emptyText = "No substream camera entities found",
+            onDismiss = { showPreviewPicker = false },
+            onSelect = {
+                previewEntity = it.entityId
+                showPreviewPicker = false
+            },
+            clearLabel = "No preview",
+            onClear = {
+                previewEntity = ""
+                showPreviewPicker = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun CameraEntitySelectionRow(
+    label: String,
+    entityId: String,
+    entities: List<HomeAssistantEntityChoice>,
+    onChoose: () -> Unit,
+    onClear: (() -> Unit)? = null,
+) {
+    val entityName = entities.firstOrNull { it.entityId == entityId }?.name
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.labelMedium)
+            Text(entityName ?: entityId.ifBlank { "Not selected" })
+            if (entityName != null) Text(entityId, style = MaterialTheme.typography.bodySmall)
+        }
+        if (onClear != null && entityId.isNotBlank()) {
+            TextButton(onClick = onClear) { Text("Clear") }
+        }
+        OutlinedButton(onClick = onChoose, enabled = entities.isNotEmpty()) { Text("Choose") }
+    }
 }
 
 @Composable

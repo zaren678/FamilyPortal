@@ -14,10 +14,68 @@ data class HomeAssistantEntityChoice(
     val deviceClass: String?,
 )
 
+data class HomeAssistantCameraChoice(
+    val main: HomeAssistantEntityChoice,
+    val preview: HomeAssistantEntityChoice?,
+)
+
 fun HomeAssistantEntityChoice.isLikelyCameraSubstream(): Boolean {
     val searchable = "$name ${entityId.substringAfter('.')}".lowercase()
     return SUBSTREAM_TERM.containsMatchIn(searchable) || LOW_RESOLUTION_TERM.containsMatchIn(searchable)
 }
+
+fun HomeAssistantCatalog.logicalCameras(): List<HomeAssistantCameraChoice> {
+    val previews = cameras.filter(HomeAssistantEntityChoice::isLikelyCameraSubstream)
+    return cameras
+        .filterNot(HomeAssistantEntityChoice::isLikelyCameraSubstream)
+        .map { main ->
+            val entityMatch = previews.firstOrNull { preview ->
+                preview.cameraPairingKey() == main.cameraPairingKey()
+            }
+            val nameMatches = previews.filter { preview ->
+                preview.cameraDisplayNameKey() == main.cameraDisplayNameKey()
+            }
+            HomeAssistantCameraChoice(
+                main = main,
+                preview = entityMatch ?: nameMatches.singleOrNull(),
+            )
+        }
+}
+
+fun HomeAssistantCatalog.findLogicalCamera(
+    entityId: String,
+    previewEntityId: String,
+    name: String,
+): HomeAssistantCameraChoice? {
+    val logicalCameras = logicalCameras()
+    logicalCameras.firstOrNull { camera ->
+        camera.main.entityId == entityId ||
+            camera.preview?.entityId == entityId ||
+            camera.main.entityId == previewEntityId ||
+            camera.preview?.entityId == previewEntityId
+    }?.let { return it }
+
+    if (cameras.any { it.entityId == entityId }) return null
+    return logicalCameras.filter { it.main.cameraDisplayNameKey() == name.cameraDisplayNameKey() }
+        .singleOrNull()
+}
+
+private fun HomeAssistantEntityChoice.cameraDisplayNameKey(): String = name.cameraDisplayNameKey()
+
+private fun String.cameraDisplayNameKey(): String = lowercase()
+    .replace(CAMERA_VARIANT_TERM, " ")
+    .replace(Regex("[^a-z0-9]+"), " ")
+    .trim()
+
+private fun HomeAssistantEntityChoice.cameraPairingKey(): String = entityId
+    .substringAfter('.')
+    .lowercase()
+    .replace(CAMERA_VARIANT_TERM, " ")
+    .replace(Regex("[^a-z0-9]+"), " ")
+    .trim()
+
+private val CAMERA_VARIANT_TERM =
+    Regex("""(?:^|[\s_.-])(main|sub|substream|lowres|low[\s_.-]+resolution)(?:[\s_.-]+\d+)?(?=$|[\s_.-])""")
 
 private val SUBSTREAM_TERM = Regex("""(?:^|[\s_.-])(sub|substream|lowres)(?:$|[\s_.-])""")
 private val LOW_RESOLUTION_TERM = Regex("""(?:^|[\s_.-])low[\s_.-]+resolution(?:$|[\s_.-])""")

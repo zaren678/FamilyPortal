@@ -32,8 +32,9 @@ import androidx.compose.ui.unit.dp
 import com.johnanderson.familyportal.core.AppSettings
 import com.johnanderson.familyportal.core.ConnectionState
 import com.johnanderson.familyportal.ha.DiscoveredHomeAssistant
+import com.johnanderson.familyportal.ha.HomeAssistantCameraChoice
 import com.johnanderson.familyportal.ha.HomeAssistantCatalog
-import com.johnanderson.familyportal.ha.isLikelyCameraSubstream
+import com.johnanderson.familyportal.ha.logicalCameras
 
 @Composable
 fun HomeAssistantSetupSection(
@@ -47,15 +48,18 @@ fun HomeAssistantSetupSection(
     onAuthorize: (String) -> Unit,
     onRefreshEntities: () -> Unit,
     onSelectSensor: (String) -> Unit,
-    onAddCamera: (String, String, Boolean) -> Unit,
+    onAddCamera: (HomeAssistantCameraChoice, Boolean) -> Unit,
     onManualSave: (String, String, String) -> Unit,
 ) {
     var manualExpanded by remember { mutableStateOf(false) }
+    var showSensorPicker by remember { mutableStateOf(false) }
+    var showCameraPicker by remember { mutableStateOf(false) }
     var manualUrl by remember(settings.homeAssistantUrl) { mutableStateOf(settings.homeAssistantUrl) }
     var manualToken by remember { mutableStateOf("") }
     var manualSensor by remember(settings.doorbellSensorEntityId) {
         mutableStateOf(settings.doorbellSensorEntityId)
     }
+    val logicalCameras = remember(catalog) { catalog?.logicalCameras().orEmpty() }
     LaunchedEffect(Unit) { onStartDiscovery() }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -100,40 +104,25 @@ fun HomeAssistantSetupSection(
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
         catalog?.let { loaded ->
-            val primaryCameras = loaded.cameras.filterNot { camera ->
-                camera.isLikelyCameraSubstream() ||
-                    settings.cameras.any { it.previewEntityId == camera.entityId }
+            val selectedSensor = loaded.personSensors.firstOrNull {
+                it.entityId == settings.doorbellSensorEntityId
             }
-            Text("Person sensor", style = MaterialTheme.typography.titleMedium)
-            if (loaded.personSensors.isEmpty()) Text("No likely person sensors were found.")
-            loaded.personSensors.forEach { sensor ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(sensor.name)
-                        Text(sensor.entityId, style = MaterialTheme.typography.bodySmall)
-                    }
-                    OutlinedButton(onClick = { onSelectSensor(sensor.entityId) }) {
-                        if (settings.doorbellSensorEntityId == sensor.entityId) Icon(Icons.Default.Check, null)
-                        Text(if (settings.doorbellSensorEntityId == sensor.entityId) " Selected" else "Select")
-                    }
-                }
-            }
-
-            Text("Cameras", style = MaterialTheme.typography.titleMedium)
-            if (primaryCameras.isEmpty()) Text("No camera entities were found.")
-            primaryCameras.forEach { camera ->
-                val alreadyAdded = settings.cameras.any { it.entityId == camera.entityId }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(camera.name)
-                        Text(camera.entityId, style = MaterialTheme.typography.bodySmall)
-                    }
-                    OutlinedButton(
-                        onClick = { onAddCamera(camera.entityId, camera.name, settings.cameras.none { it.isDoorbell }) },
-                        enabled = !alreadyAdded,
-                    ) { Text(if (alreadyAdded) "Added" else "Add") }
-                }
-            }
+            PickerSummaryRow(
+                title = "Doorbell trigger",
+                value = selectedSensor?.name ?: settings.doorbellSensorEntityId.ifBlank { "Not selected" },
+                detail = selectedSensor?.entityId,
+                buttonText = if (settings.doorbellSensorEntityId.isBlank()) "Choose" else "Change",
+                enabled = loaded.personSensors.isNotEmpty(),
+                onClick = { showSensorPicker = true },
+            )
+            PickerSummaryRow(
+                title = "Cameras",
+                value = "${settings.cameras.size} configured",
+                detail = "${logicalCameras.size} available from Home Assistant",
+                buttonText = "Add cameras",
+                enabled = logicalCameras.isNotEmpty(),
+                onClick = { showCameraPicker = true },
+            )
         }
 
         TextButton(onClick = { manualExpanded = !manualExpanded }) {
@@ -170,5 +159,50 @@ fun HomeAssistantSetupSection(
                 enabled = manualUrl.isNotBlank() && (manualToken.isNotBlank() || settings.homeAssistantUrl.isNotBlank()),
             ) { Text("Save and test") }
         }
+    }
+
+    if (showSensorPicker && catalog != null) {
+        HomeAssistantEntityPickerDialog(
+            title = "Choose doorbell trigger",
+            entities = catalog.personSensors,
+            selectedEntityId = settings.doorbellSensorEntityId,
+            emptyText = "No matching person sensors",
+            onDismiss = { showSensorPicker = false },
+            onSelect = { entity ->
+                onSelectSensor(entity.entityId)
+                showSensorPicker = false
+            },
+        )
+    }
+
+    if (showCameraPicker && catalog != null) {
+        HomeAssistantCameraPickerDialog(
+            cameras = logicalCameras,
+            configuredEntityIds = settings.cameras.flatMap { camera ->
+                listOf(camera.entityId, camera.previewEntityId)
+            }.filter(String::isNotBlank).toSet(),
+            firstCameraIsDoorbell = settings.cameras.none { it.isDoorbell },
+            onDismiss = { showCameraPicker = false },
+            onAdd = onAddCamera,
+        )
+    }
+}
+
+@Composable
+private fun PickerSummaryRow(
+    title: String,
+    value: String,
+    detail: String?,
+    buttonText: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(value)
+            detail?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        }
+        OutlinedButton(onClick = onClick, enabled = enabled) { Text(buttonText) }
     }
 }
