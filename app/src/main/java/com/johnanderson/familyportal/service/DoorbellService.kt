@@ -25,6 +25,7 @@ import com.johnanderson.familyportal.ha.doorbellTransition
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -41,6 +42,7 @@ import kotlin.random.Random
 
 class DoorbellService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var alertNotificationTimeout: Job? = null
     private val graph get() = (application as FamilyPortalApplication).graph
 
     override fun onCreate() {
@@ -163,8 +165,24 @@ class DoorbellService : Service() {
                 }
             }
         }
-        getSystemService<NotificationManager>()?.notify(ALERT_NOTIFICATION_ID, alertNotification())
-        scope.launch {
+        val notificationManager = getSystemService<NotificationManager>()
+        val channelImportance = notificationManager
+            ?.getNotificationChannel(ALERT_CHANNEL)
+            ?.importance
+        val fullScreenIntentAllowed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            notificationManager?.canUseFullScreenIntent()
+        } else {
+            true
+        }
+        Log.i(
+            TAG,
+            "Posting doorbell alert; notificationsEnabled=${notificationManager?.areNotificationsEnabled()} " +
+                "channelImportance=$channelImportance fullScreenIntentAllowed=$fullScreenIntentAllowed",
+        )
+        alertNotificationTimeout?.cancel()
+        notificationManager?.notify(ALERT_NOTIFICATION_ID, alertNotification())
+        launchDoorbellActivity()
+        alertNotificationTimeout = scope.launch {
             delay(durationSeconds * 1_000L)
             getSystemService<NotificationManager>()?.cancel(ALERT_NOTIFICATION_ID)
         }
@@ -178,14 +196,24 @@ class DoorbellService : Service() {
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
         .build()
 
-    private fun alertNotification(): Notification {
-        val intent = Intent(this, MainActivity::class.java).addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP,
+    private fun doorbellActivityIntent(): Intent = Intent(this, MainActivity::class.java)
+        .addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP,
         )
+
+    private fun launchDoorbellActivity() {
+        runCatching { startActivity(doorbellActivityIntent()) }
+            .onSuccess { Log.i(TAG, "Requested foreground activity for doorbell alert") }
+            .onFailure { Log.w(TAG, "Unable to request foreground activity for doorbell alert", it) }
+    }
+
+    private fun alertNotification(): Notification {
         val pendingIntent = PendingIntent.getActivity(
             this,
             2,
-            intent,
+            doorbellActivityIntent(),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, ALERT_CHANNEL)
@@ -194,6 +222,7 @@ class DoorbellService : Service() {
             .setContentText("Opening the doorbell camera")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setFullScreenIntent(pendingIntent, true)
@@ -201,7 +230,6 @@ class DoorbellService : Service() {
     }
 
     private fun createNotificationChannels() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService<NotificationManager>() ?: return
         manager.createNotificationChannel(
             NotificationChannel(
@@ -215,7 +243,10 @@ class DoorbellService : Service() {
                 ALERT_CHANNEL,
                 "Doorbell alerts",
                 NotificationManager.IMPORTANCE_HIGH,
-            ).apply { setSound(null, null) },
+            ).apply {
+                setSound(null, null)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            },
         )
     }
 
@@ -230,8 +261,7 @@ class DoorbellService : Service() {
 
         fun start(context: Context) {
             val intent = Intent(context, DoorbellService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
-            else context.startService(intent)
+            context.startForegroundService(intent)
         }
     }
 }

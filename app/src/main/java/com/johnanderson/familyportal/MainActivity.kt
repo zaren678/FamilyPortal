@@ -1,9 +1,11 @@
 package com.johnanderson.familyportal
 import android.Manifest
+import android.app.KeyguardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
@@ -65,6 +67,7 @@ import com.johnanderson.familyportal.ui.SettingsScreen
 import com.johnanderson.familyportal.ui.theme.FamilyPortalTheme
 
 class MainActivity : ComponentActivity() {
+    private var keyguardDismissRequested = false
     private val portalViewModel: PortalViewModel by viewModels {
         PortalViewModel.factory((application as FamilyPortalApplication).graph)
     }
@@ -114,10 +117,58 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         hideSystemUi()
+        if (portalViewModel.appState.value.overlay is PortalOverlay.Doorbell) {
+            dismissKeyguardForDoorbell()
+        }
     }
+
+    @Suppress("DEPRECATION")
+    private fun dismissKeyguardForDoorbell() {
+        val keyguardManager = getSystemService(KeyguardManager::class.java) ?: return
+        if (keyguardDismissRequested) return
+        window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
+        if (keyguardManager.isKeyguardLocked) {
+            keyguardDismissRequested = true
+            Log.i(TAG, "Requesting keyguard dismissal for doorbell alert")
+            keyguardManager.requestDismissKeyguard(
+                this,
+                object : KeyguardManager.KeyguardDismissCallback() {
+                    override fun onDismissSucceeded() {
+                        Log.i(TAG, "Keyguard dismissal succeeded")
+                        clearDismissKeyguardFlag()
+                    }
+
+                    override fun onDismissCancelled() {
+                        Log.w(TAG, "Keyguard dismissal was cancelled")
+                        clearDismissKeyguardFlag()
+                    }
+
+                    override fun onDismissError() {
+                        Log.w(TAG, "Keyguard dismissal failed")
+                        clearDismissKeyguardFlag()
+                    }
+                },
+            )
+        } else {
+            clearDismissKeyguardFlag()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun clearDismissKeyguardFlag() {
+        keyguardDismissRequested = false
+        window.clearFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
+    }
+
     fun applyDoorbellWakeLock(active: Boolean) {
-        if (active) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (active) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            configureLockScreenVisibility()
+            dismissKeyguardForDoorbell()
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            clearDismissKeyguardFlag()
+        }
     }
     private fun hideSystemUi() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -134,6 +185,10 @@ class MainActivity : ComponentActivity() {
         ) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
         }
+    }
+
+    companion object {
+        private const val TAG = "FamilyPortalActivity"
     }
 }
 
