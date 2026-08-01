@@ -13,6 +13,7 @@ import com.johnanderson.familyportal.core.PortalTab
 import com.johnanderson.familyportal.ha.DiscoveredHomeAssistant
 import com.johnanderson.familyportal.ha.HomeAssistantCameraChoice
 import com.johnanderson.familyportal.ha.HomeAssistantCatalog
+import com.johnanderson.familyportal.ha.WeatherSnapshot
 import com.johnanderson.familyportal.ha.findLogicalCamera
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -20,7 +21,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
@@ -57,6 +61,10 @@ class PortalViewModel(
     val homeAssistantSetupBusy: StateFlow<Boolean> = _homeAssistantSetupBusy.asStateFlow()
     private val _homeAssistantSetupError = MutableStateFlow<String?>(null)
     val homeAssistantSetupError: StateFlow<String?> = _homeAssistantSetupError.asStateFlow()
+    private val _weather = MutableStateFlow<WeatherSnapshot?>(null)
+    val weather: StateFlow<WeatherSnapshot?> = _weather.asStateFlow()
+    private val _weatherError = MutableStateFlow<String?>(null)
+    val weatherError: StateFlow<String?> = _weatherError.asStateFlow()
 
     private val _weekStart = MutableStateFlow(currentSunday())
     val weekStart: StateFlow<LocalDate> = _weekStart.asStateFlow()
@@ -68,8 +76,24 @@ class PortalViewModel(
             graph.calendarRepository.events(start, end)
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    private val _today = MutableStateFlow(LocalDate.now())
+    val todayEvents: StateFlow<List<CalendarEventEntity>> = _today
+        .flatMapLatest { date ->
+            val zone = ZoneId.systemDefault()
+            graph.calendarRepository.events(
+                date.atStartOfDay(zone).toInstant(),
+                date.plusDays(1).atStartOfDay(zone).toInstant(),
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
+        viewModelScope.launch {
+            while (true) {
+                _today.value = LocalDate.now()
+                delay(60 * 1_000L)
+            }
+        }
         viewModelScope.launch {
             settings.collect { value ->
                 if (value.homeAssistantUrl.isNotBlank() && _homeAssistantCatalog.value == null) {
@@ -91,6 +115,29 @@ class PortalViewModel(
                 }
                 delay(10 * 60 * 1_000L)
             }
+        }
+        viewModelScope.launch {
+            settings
+                .map { Triple(it.homeAssistantUrl, it.homeAssistantRevision, it.weatherEntityId) }
+                .distinctUntilChanged()
+                .collectLatest { (baseUrl, _, entityId) ->
+                    _weather.value = null
+                    _weatherError.value = null
+                    if (baseUrl.isBlank() || entityId.isBlank()) {
+                        return@collectLatest
+                    }
+                    while (true) {
+                        runCatching { graph.homeAssistantWeatherClient.load(baseUrl, entityId) }
+                            .onSuccess {
+                                _weather.value = it
+                                _weatherError.value = null
+                            }
+                            .onFailure { error ->
+                                _weatherError.value = error.message ?: "Weather unavailable"
+                            }
+                        delay(15 * 60 * 1_000L)
+                    }
+                }
         }
     }
 
@@ -168,6 +215,10 @@ class PortalViewModel(
 
     fun selectDoorbellSensor(entityId: String) = viewModelScope.launch {
         graph.settingsRepository.update { it.copy(doorbellSensorEntityId = entityId) }
+    }
+
+    fun selectWeatherEntity(entityId: String) = viewModelScope.launch {
+        graph.settingsRepository.update { it.copy(weatherEntityId = entityId) }
     }
 
     fun addDiscoveredCamera(camera: HomeAssistantCameraChoice, doorbell: Boolean) =

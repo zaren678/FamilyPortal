@@ -48,11 +48,13 @@ fun HomeAssistantSetupSection(
     onAuthorize: (String) -> Unit,
     onRefreshEntities: () -> Unit,
     onSelectSensor: (String) -> Unit,
+    onSelectWeather: (String) -> Unit,
     onAddCamera: (HomeAssistantCameraChoice, Boolean) -> Unit,
     onManualSave: (String, String, String) -> Unit,
 ) {
     var manualExpanded by remember { mutableStateOf(false) }
     var showSensorPicker by remember { mutableStateOf(false) }
+    var showWeatherPicker by remember { mutableStateOf(false) }
     var showCameraPicker by remember { mutableStateOf(false) }
     var manualUrl by remember(settings.homeAssistantUrl) { mutableStateOf(settings.homeAssistantUrl) }
     var manualToken by remember { mutableStateOf("") }
@@ -115,6 +117,17 @@ fun HomeAssistantSetupSection(
                 enabled = loaded.personSensors.isNotEmpty(),
                 onClick = { showSensorPicker = true },
             )
+            val selectedWeather = loaded.weather.firstOrNull {
+                it.entityId == settings.weatherEntityId
+            }
+            PickerSummaryRow(
+                title = "Weather",
+                value = selectedWeather?.name ?: settings.weatherEntityId.ifBlank { "Not selected" },
+                detail = selectedWeather?.entityId,
+                buttonText = if (settings.weatherEntityId.isBlank()) "Choose" else "Change",
+                enabled = loaded.weather.isNotEmpty(),
+                onClick = { showWeatherPicker = true },
+            )
             PickerSummaryRow(
                 title = "Cameras",
                 value = "${settings.cameras.size} configured",
@@ -171,6 +184,20 @@ fun HomeAssistantSetupSection(
             onSelect = { entity ->
                 onSelectSensor(entity.entityId)
                 showSensorPicker = false
+            },
+        )
+    }
+
+    if (showWeatherPicker && catalog != null) {
+        HomeAssistantEntityPickerDialog(
+            title = "Choose weather entity",
+            entities = catalog.weather,
+            selectedEntityId = settings.weatherEntityId,
+            emptyText = "No weather entities found",
+            onDismiss = { showWeatherPicker = false },
+            onSelect = { entity ->
+                onSelectWeather(entity.entityId)
+                showWeatherPicker = false
             },
         )
     }

@@ -15,6 +15,7 @@ import com.johnanderson.familyportal.ha.HomeAssistantClient
 import com.johnanderson.familyportal.ha.HomeAssistantAuthManager
 import com.johnanderson.familyportal.ha.HomeAssistantCatalogClient
 import com.johnanderson.familyportal.ha.HomeAssistantDiscovery
+import com.johnanderson.familyportal.ha.HomeAssistantWeatherClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -55,6 +56,7 @@ class AppGraph(application: Application) {
     val homeAssistantDiscovery = HomeAssistantDiscovery(application)
     val homeAssistantCatalogClient = HomeAssistantCatalogClient(httpClient, json, homeAssistantAuthManager)
     val homeAssistantClient = HomeAssistantClient(httpClient, json)
+    val homeAssistantWeatherClient = HomeAssistantWeatherClient(httpClient, json, homeAssistantAuthManager)
     val cameraRepository = CameraRepository(httpClient, homeAssistantAuthManager)
     val coordinator = AppCoordinator(applicationScope)
 

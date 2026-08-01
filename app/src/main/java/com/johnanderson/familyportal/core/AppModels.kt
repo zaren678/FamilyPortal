@@ -3,7 +3,7 @@ package com.johnanderson.familyportal.core
 import kotlinx.serialization.Serializable
 import java.time.Instant
 
-enum class PortalTab { CALENDAR, CAMERAS }
+enum class PortalTab { TODAY, CALENDAR, CAMERAS }
 
 sealed interface PortalOverlay {
     data class CameraViewer(val cameraId: String) : PortalOverlay
@@ -17,7 +17,7 @@ sealed interface PortalOverlay {
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
 
 data class AppUiState(
-    val selectedTab: PortalTab = PortalTab.CALENDAR,
+    val selectedTab: PortalTab = PortalTab.TODAY,
     val overlay: PortalOverlay? = null,
     val homeAssistantState: ConnectionState = ConnectionState.DISCONNECTED,
 )
@@ -38,6 +38,7 @@ data class AppSettings(
     val homeAssistantUrl: String = "",
     val homeAssistantRevision: Int = 0,
     val doorbellSensorEntityId: String = "",
+    val weatherEntityId: String = "",
     val cameras: List<CameraConfig> = emptyList(),
     val alertDurationSeconds: Int = 30,
 )

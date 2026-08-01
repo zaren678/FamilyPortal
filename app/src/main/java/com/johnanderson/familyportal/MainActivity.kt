@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,6 +65,7 @@ import com.johnanderson.familyportal.ui.CameraScreen
 import com.johnanderson.familyportal.ui.CameraViewerOverlay
 import com.johnanderson.familyportal.ui.PinDialog
 import com.johnanderson.familyportal.ui.SettingsScreen
+import com.johnanderson.familyportal.ui.TodayScreen
 import com.johnanderson.familyportal.ui.theme.FamilyPortalTheme
 
 class MainActivity : ComponentActivity() {
@@ -206,6 +208,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
     }
     val sources by viewModel.calendarSources.collectAsStateWithLifecycle()
     val events by viewModel.calendarEvents.collectAsStateWithLifecycle()
+    val todayEvents by viewModel.todayEvents.collectAsStateWithLifecycle()
     val weekStart by viewModel.weekStart.collectAsStateWithLifecycle()
     val syncState by viewModel.syncState.collectAsStateWithLifecycle()
     val googleAuthorized by viewModel.googleAuthorized.collectAsStateWithLifecycle()
@@ -216,6 +219,8 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
     val homeAssistantCatalog by viewModel.homeAssistantCatalog.collectAsStateWithLifecycle()
     val homeAssistantSetupBusy by viewModel.homeAssistantSetupBusy.collectAsStateWithLifecycle()
     val homeAssistantSetupError by viewModel.homeAssistantSetupError.collectAsStateWithLifecycle()
+    val weather by viewModel.weather.collectAsStateWithLifecycle()
+    val weatherError by viewModel.weatherError.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val route by navController.currentBackStackEntryAsState()
     var requestPin by remember { mutableStateOf(false) }
@@ -225,8 +230,9 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
         (activity as MainActivity).applyDoorbellWakeLock(doorbellVisible)
     }
     val selectedTabIndex = when (route?.destination?.route) {
-        ROUTE_CAMERAS -> 1
-        ROUTE_SETTINGS -> 2
+        ROUTE_CALENDAR -> 1
+        ROUTE_CAMERAS -> 2
+        ROUTE_SETTINGS -> 3
         else -> 0
     }
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
@@ -239,6 +245,28 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
             PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
                 Tab(
                     selected = selectedTabIndex == 0,
+                    onClick = {
+                        viewModel.selectTab(PortalTab.TODAY)
+                        navController.navigate(ROUTE_TODAY) { launchSingleTop = true }
+                    },
+                    text = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Default.Home, null)
+                            Text(
+                                "Today",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 18.sp,
+                                    lineHeight = 22.sp,
+                                ),
+                            )
+                        }
+                    },
+                )
+                Tab(
+                    selected = selectedTabIndex == 1,
                     onClick = {
                         viewModel.selectTab(PortalTab.CALENDAR)
                         navController.navigate(ROUTE_CALENDAR) { launchSingleTop = true }
@@ -260,7 +288,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                     },
                 )
                 Tab(
-                    selected = selectedTabIndex == 1,
+                    selected = selectedTabIndex == 2,
                     onClick = {
                         viewModel.selectTab(PortalTab.CAMERAS)
                         navController.navigate(ROUTE_CAMERAS) { launchSingleTop = true }
@@ -282,7 +310,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                     },
                 )
                 Tab(
-                    selected = selectedTabIndex == 2,
+                    selected = selectedTabIndex == 3,
                     onClick = {
                         if (viewModel.graph.settingsRepository.hasPin()) requestPin = true
                         else navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
@@ -304,7 +332,21 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                     },
                 )
             }
-            NavHost(navController, startDestination = ROUTE_CALENDAR, modifier = Modifier.weight(1f)) {
+            NavHost(navController, startDestination = ROUTE_TODAY, modifier = Modifier.weight(1f)) {
+                composable(ROUTE_TODAY) {
+                    TodayScreen(
+                        events = todayEvents,
+                        cameras = displayCameras,
+                        homeAssistantState = appState.homeAssistantState,
+                        weather = weather,
+                        weatherError = weatherError,
+                        onOpenCalendar = {
+                            viewModel.selectTab(PortalTab.CALENDAR)
+                            navController.navigate(ROUTE_CALENDAR) { launchSingleTop = true }
+                        },
+                        onCameraSelected = viewModel::openCamera,
+                    )
+                }
                 composable(ROUTE_CALENDAR) {
                     CalendarScreen(
                         weekStart = weekStart,
@@ -353,6 +395,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                         },
                         onRefreshHomeAssistantEntities = { viewModel.loadHomeAssistantCatalog() },
                         onSelectDoorbellSensor = viewModel::selectDoorbellSensor,
+                        onSelectWeather = viewModel::selectWeatherEntity,
                         onAddDiscoveredCamera = viewModel::addDiscoveredCamera,
                         onSaveHomeAssistant = viewModel::updateHomeAssistant,
                         onSaveCamera = viewModel::saveCamera,
@@ -400,6 +443,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
     }
 }
 
+private const val ROUTE_TODAY = "today"
 private const val ROUTE_CALENDAR = "calendar"
 private const val ROUTE_CAMERAS = "cameras"
 private const val ROUTE_SETTINGS = "settings"

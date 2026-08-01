@@ -75,6 +75,7 @@ fun SettingsScreen(
     onAuthorizeHomeAssistant: (String) -> Unit,
     onRefreshHomeAssistantEntities: () -> Unit,
     onSelectDoorbellSensor: (String) -> Unit,
+    onSelectWeather: (String) -> Unit,
     onAddDiscoveredCamera: (HomeAssistantCameraChoice, Boolean) -> Unit,
     onSaveHomeAssistant: (String, String, String) -> Unit,
     onSaveCamera: (String?, String, String, String, String, Boolean, Boolean) -> Unit,
@@ -149,6 +150,7 @@ fun SettingsScreen(
                 onAuthorize = onAuthorizeHomeAssistant,
                 onRefreshEntities = onRefreshHomeAssistantEntities,
                 onSelectSensor = onSelectDoorbellSensor,
+                onSelectWeather = onSelectWeather,
                 onAddCamera = onAddDiscoveredCamera,
                 onManualSave = onSaveHomeAssistant,
             )

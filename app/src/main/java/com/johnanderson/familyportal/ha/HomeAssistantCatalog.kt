@@ -83,6 +83,7 @@ private val LOW_RESOLUTION_TERM = Regex("""(?:^|[\s_.-])low[\s_.-]+resolution(?:
 data class HomeAssistantCatalog(
     val personSensors: List<HomeAssistantEntityChoice>,
     val cameras: List<HomeAssistantEntityChoice>,
+    val weather: List<HomeAssistantEntityChoice> = emptyList(),
 )
 
 class HomeAssistantCatalogClient(
@@ -116,6 +117,8 @@ class HomeAssistantCatalogClient(
                         PERSON_TERMS.any { choice.name.contains(it, ignoreCase = true) })
             }.sortedBy(HomeAssistantEntityChoice::name),
             cameras = choices.filter { it.entityId.startsWith("camera.") }
+                .sortedBy(HomeAssistantEntityChoice::name),
+            weather = choices.filter { it.entityId.startsWith("weather.") }
                 .sortedBy(HomeAssistantEntityChoice::name),
         )
     }
