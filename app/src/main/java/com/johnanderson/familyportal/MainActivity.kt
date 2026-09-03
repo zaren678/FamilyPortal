@@ -18,12 +18,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -55,6 +57,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.johnanderson.familyportal.core.ConnectionState
 import com.johnanderson.familyportal.core.PortalOverlay
 import com.johnanderson.familyportal.core.PortalTab
 import com.johnanderson.familyportal.ha.HomeAssistantAuthActivity
@@ -332,6 +335,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                     },
                 )
             }
+            HomeAssistantStatusBanner(connectionState = appState.homeAssistantState)
             NavHost(navController, startDestination = ROUTE_TODAY, modifier = Modifier.weight(1f)) {
                 composable(ROUTE_TODAY) {
                     TodayScreen(
@@ -439,6 +443,35 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                     pinError = "Incorrect PIN"
                 }
             },
+        )
+    }
+}
+
+@Composable
+private fun HomeAssistantStatusBanner(connectionState: ConnectionState) {
+    if (connectionState == ConnectionState.CONNECTED) return
+    val label = when (connectionState) {
+        ConnectionState.CONNECTING -> "Connecting…"
+        ConnectionState.ERROR -> "Connection error"
+        else -> "Disconnected"
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Default.Warning,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onErrorContainer,
+        )
+        Text(
+            "Home Assistant $label — doorbell alerts paused",
+            style = MaterialTheme.typography.labelLarge.copy(fontSize = 16.sp),
+            color = MaterialTheme.colorScheme.onErrorContainer,
         )
     }
 }
