@@ -1,5 +1,6 @@
 package com.johnanderson.familyportal.ui
 
+import android.app.NotificationManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -51,6 +52,7 @@ import com.johnanderson.familyportal.ha.HomeAssistantCameraChoice
 import com.johnanderson.familyportal.ha.HomeAssistantEntityChoice
 import com.johnanderson.familyportal.ha.HomeAssistantCatalog
 import com.johnanderson.familyportal.ha.isLikelyCameraSubstream
+import com.johnanderson.familyportal.service.AlertReadiness
 
 @Composable
 fun SettingsScreen(
@@ -82,6 +84,9 @@ fun SettingsScreen(
     onDeleteCamera: (String) -> Unit,
     onSaveDoorbell: (Int) -> Unit,
     onSetPin: (String) -> Unit,
+    alertReadiness: AlertReadiness? = null,
+    onOpenAlertSettings: () -> Unit = {},
+    onOpenFullScreenIntentSettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var alertSeconds by rememberSaveable(settings.alertDurationSeconds) {
@@ -187,6 +192,13 @@ fun SettingsScreen(
         }
         item { HorizontalDivider(); SectionTitle("Doorbell alerts") }
         item {
+            DoorbellAlertReadinessRow(
+                readiness = alertReadiness,
+                onOpenAlertSettings = onOpenAlertSettings,
+                onOpenFullScreenIntentSettings = onOpenFullScreenIntentSettings,
+            )
+        }
+        item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -256,6 +268,41 @@ fun SettingsScreen(
             onDismiss = { showPinDialog = false },
             onSubmit = { onSetPin(it); showPinDialog = false },
         )
+    }
+}
+
+@Composable
+private fun DoorbellAlertReadinessRow(
+    readiness: AlertReadiness?,
+    onOpenAlertSettings: () -> Unit,
+    onOpenFullScreenIntentSettings: (() -> Unit)?,
+) {
+    if (readiness == null) return
+    if (readiness.canPopToForeground) {
+        Text("Pop-up alerts ready — the doorbell opens over other apps.")
+        return
+    }
+    val reasons = buildList {
+        if (!readiness.notificationsEnabled) add("notifications are off")
+        if (readiness.channelImportance < NotificationManager.IMPORTANCE_HIGH) {
+            add("the alert channel is silenced")
+        }
+        if (!readiness.fullScreenIntentAllowed) add("full-screen alerts are not allowed")
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "Doorbell pop-up blocked (${reasons.joinToString(", ")}). " +
+                "Alerts will only appear if this app is already open.",
+            color = MaterialTheme.colorScheme.error,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = onOpenAlertSettings) { Text("Notification settings") }
+            if (!readiness.fullScreenIntentAllowed && onOpenFullScreenIntentSettings != null) {
+                OutlinedButton(onClick = onOpenFullScreenIntentSettings) {
+                    Text("Allow full-screen alerts")
+                }
+            }
+        }
     }
 }
 

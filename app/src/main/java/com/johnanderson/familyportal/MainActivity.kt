@@ -55,6 +55,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.johnanderson.familyportal.core.ConnectionState
@@ -62,7 +65,11 @@ import com.johnanderson.familyportal.core.PortalOverlay
 import com.johnanderson.familyportal.core.PortalTab
 import com.johnanderson.familyportal.ha.HomeAssistantAuthActivity
 import com.johnanderson.familyportal.ha.HomeAssistantAuthManager
+import com.johnanderson.familyportal.service.AlertReadiness
 import com.johnanderson.familyportal.service.DoorbellService
+import com.johnanderson.familyportal.service.appNotificationSettingsIntent
+import com.johnanderson.familyportal.service.checkAlertReadiness
+import com.johnanderson.familyportal.service.fullScreenIntentSettingsIntent
 import com.johnanderson.familyportal.ui.CalendarScreen
 import com.johnanderson.familyportal.ui.CameraScreen
 import com.johnanderson.familyportal.ui.CameraViewerOverlay
@@ -228,6 +235,16 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
     val route by navController.currentBackStackEntryAsState()
     var requestPin by remember { mutableStateOf(false) }
     var pinError by remember { mutableStateOf<String?>(null) }
+    var alertReadiness by remember { mutableStateOf<AlertReadiness?>(null) }
+    LaunchedEffect(appResumed) {
+        if (appResumed) {
+            // DoorbellService creates its channels asynchronously after start,
+            // so re-read once it has had a chance to run.
+            alertReadiness = withContext(Dispatchers.IO) { checkAlertReadiness(activity) }
+            delay(READINESS_RECHECK_DELAY_MILLIS)
+            alertReadiness = withContext(Dispatchers.IO) { checkAlertReadiness(activity) }
+        }
+    }
     val doorbellVisible = appState.overlay is PortalOverlay.Doorbell
     LaunchedEffect(doorbellVisible) {
         (activity as MainActivity).applyDoorbellWakeLock(doorbellVisible)
@@ -406,6 +423,13 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                         onDeleteCamera = viewModel::deleteCamera,
                         onSaveDoorbell = viewModel::updateDoorbellSettings,
                         onSetPin = viewModel.graph.settingsRepository::setPin,
+                        alertReadiness = alertReadiness,
+                        onOpenAlertSettings = {
+                            activity.startActivity(appNotificationSettingsIntent(activity))
+                        },
+                        onOpenFullScreenIntentSettings = fullScreenIntentSettingsIntent(activity)?.let { intent ->
+                            { activity.startActivity(intent) }
+                        },
                     )
                 }
             }
@@ -475,6 +499,8 @@ private fun HomeAssistantStatusBanner(connectionState: ConnectionState) {
         )
     }
 }
+
+private const val READINESS_RECHECK_DELAY_MILLIS = 2_000L
 
 private const val ROUTE_TODAY = "today"
 private const val ROUTE_CALENDAR = "calendar"

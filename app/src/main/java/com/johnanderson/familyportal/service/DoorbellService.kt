@@ -204,8 +204,17 @@ class DoorbellService : Service() {
         )
 
     private fun launchDoorbellActivity() {
+        // Best effort only: since Android 10 the system silently drops activity
+        // starts from a background service, so the full-screen-intent
+        // notification posted in wakeForAlert is the real bring-to-front path.
         runCatching { startActivity(doorbellActivityIntent()) }
-            .onSuccess { Log.i(TAG, "Requested foreground activity for doorbell alert") }
+            .onSuccess {
+                Log.i(
+                    TAG,
+                    "Requested foreground activity for doorbell alert " +
+                        "(may be dropped while backgrounded; full-screen intent is the fallback)",
+                )
+            }
             .onFailure { Log.w(TAG, "Unable to request foreground activity for doorbell alert", it) }
     }
 
@@ -238,6 +247,17 @@ class DoorbellService : Service() {
                 NotificationManager.IMPORTANCE_LOW,
             ),
         )
+        // createNotificationChannel is a no-op for existing channels, so a
+        // channel left at lower importance by an earlier install would
+        // permanently break full-screen doorbell alerts unless recreated.
+        val existing = manager.getNotificationChannel(ALERT_CHANNEL)
+        if (alertChannelNeedsRecreate(existing?.importance)) {
+            Log.w(
+                TAG,
+                "Recreating doorbell alert channel; importance was ${existing?.importance}",
+            )
+            manager.deleteNotificationChannel(ALERT_CHANNEL)
+        }
         manager.createNotificationChannel(
             NotificationChannel(
                 ALERT_CHANNEL,
@@ -253,7 +273,7 @@ class DoorbellService : Service() {
     companion object {
         private const val TAG = "FamilyPortalDoorbell"
         private const val SERVICE_CHANNEL = "doorbell_connection"
-        private const val ALERT_CHANNEL = "doorbell_alerts"
+        internal const val ALERT_CHANNEL = "doorbell_alerts"
         private const val SERVICE_NOTIFICATION_ID = 11
         private const val ALERT_NOTIFICATION_ID = 12
         private const val DOORBELL_PREWARM_INTERVAL_MILLIS = 30_000L
