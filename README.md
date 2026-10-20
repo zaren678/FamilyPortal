@@ -1,6 +1,6 @@
 # Family Portal
 
-Dedicated landscape Android dashboard for a shared Google Calendar, Home Assistant cameras, and doorbell person alerts.
+Dedicated landscape Android dashboard for a shared Google Calendar, Home Assistant cameras, and doorbell person alerts, plus a view-only Android TV companion.
 
 ## Project layout
 
@@ -9,6 +9,9 @@ Dedicated landscape Android dashboard for a shared Google Calendar, Home Assista
 | `:core` | Settings and secure storage, Room calendar cache, Google and Home Assistant auth, HA discovery/catalog/weather, `CameraRepository`, `PortalViewModel` |
 | `:core-ui` | Shared Compose: theme, live camera preview and full-screen player, event dialog, calendar colours, weather panel |
 | `:app` | Portal app (`com.johnanderson.familyportal`): touch UI, Settings, doorbell service, boot receiver, HOME role |
+| `:tv` | Android TV app (`com.johnanderson.familyportal.tv`): D-pad dashboard, full-screen camera viewer, TV setup |
+
+Each device keeps its own settings and sign-ins; nothing is copied between the Portal and the TV.
 
 ## Prerequisites
 
@@ -21,11 +24,11 @@ Dedicated landscape Android dashboard for a shared Google Calendar, Home Assista
 ## Google OAuth
 
 1. Create a release keystore outside this repository and keep it backed up.
-2. Create an OAuth client of type "TVs and Limited Input devices". It is not tied to a package name or signing certificate.
+2. Create an OAuth client of type "TVs and Limited Input devices". It is not tied to a package name or signing certificate, so the Portal and TV apps share it.
 3. Copy `local.properties.example` to `local.properties` and set `GOOGLE_DEVICE_OAUTH_CLIENT_ID` and `GOOGLE_DEVICE_OAUTH_CLIENT_SECRET`.
 4. Move the OAuth consent screen out of Testing before appliance deployment so the refresh token does not expire after seven days.
 
-The app requests only identity, email, and `calendar.readonly` using Google's device-code flow: the device shows a code that you enter at google.com/device on a phone or computer.
+Both apps request only identity, email, and `calendar.readonly` using Google's device-code flow: the device shows a code that you enter at google.com/device on a phone or computer.
 
 ## Build
 
@@ -34,9 +37,9 @@ export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 ./gradlew test assembleDebug
 ```
 
-This builds and tests every module. Dependencies come from Google Maven and Maven Central; on a network that requires a proxy, set Gradle's `systemProp.https.proxyHost`/`proxyPort` in `~/.gradle/gradle.properties`.
+This builds and tests every module. Use `:app:assembleDebug` or `:tv:assembleDebug` to build one app. Dependencies come from Google Maven and Maven Central; on a network that requires a proxy, set Gradle's `systemProp.https.proxyHost`/`proxyPort` in `~/.gradle/gradle.properties`.
 
-For release builds, copy `keystore.properties.example` to `keystore.properties`, fill in the external keystore values, and run `./gradlew bundleRelease assembleRelease`.
+For release builds, copy `keystore.properties.example` to `keystore.properties`, fill in the external keystore values, and run `./gradlew bundleRelease assembleRelease`. Both apps are signed with the same key.
 
 ## Portal setup
 
@@ -65,3 +68,20 @@ To restore the Meta launcher, list HOME candidates with `adb shell cmd package q
 5. Confirm the active hours and idle-dimming delay.
 
 Secrets are stored with an Android Keystore AES-GCM key and are not logged. Calendar events remain available from the local Room cache when Google is offline.
+
+## Android TV
+
+The TV app is view-only: live cameras, today's agenda, and weather. It has no doorbell alerts, HOME role, or PIN.
+
+```bash
+./gradlew :tv:assembleDebug
+adb install tv/build/outputs/apk/debug/tv-debug.apk
+```
+
+Open Family Portal from the TV's app row, choose **Set up**, then:
+
+1. **Sign in with Google** and enter the displayed code on your phone, then choose which calendars to show.
+2. Pick your Home Assistant from the discovered list (or enter its address) and log in once on the Home Assistant page.
+3. Turn on the cameras to show and choose a weather entity.
+
+On the dashboard, press OK on a camera to view it full screen; Left/Right switches cameras, OK toggles audio when available, and Back returns. The TV screensaver is only blocked while a camera is full screen.

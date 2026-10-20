@@ -1,0 +1,17 @@
+<!-- 16:9 launcher banner (320x180 px at xhdpi) using the app icon artwork. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="160dp"
+    android:height="90dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#111315" android:pathData="M0,0h320v180h-320z" />
+    <group
+        android:scaleX="1.5"
+        android:scaleY="1.5"
+        android:translateX="79"
+        android:translateY="9">
+        <path android:fillColor="#1565C0" android:pathData="M20,22h68v64h-68z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M29,38h12v12h-12zM48,38h12v12h-12zM67,38h12v12h-12zM29,57h12v12h-12zM48,57h12v12h-12zM67,57h12v12h-12z" />
+        <path android:fillColor="#D32F2F" android:pathData="M28,16h8v14h-8zM72,16h8v14h-8z" />
+    </group>
+</vector>

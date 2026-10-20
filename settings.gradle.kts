@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "FamilyPortal"
-include(":core", ":core-ui", ":app")
+include(":core", ":core-ui", ":app", ":tv")
