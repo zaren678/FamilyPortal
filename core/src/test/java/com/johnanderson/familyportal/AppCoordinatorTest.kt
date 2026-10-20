@@ -6,6 +6,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -22,6 +23,22 @@ class AppCoordinatorTest {
         advanceTimeBy(240_000)
         runCurrent()
         assertNull(coordinator.state.value.overlay)
+    }
+
+    @Test
+    fun pinnedCameraSurvivesDoorbellAlert() = runTest {
+        val coordinator = AppCoordinator(this)
+        coordinator.pinCamera("backyard")
+
+        coordinator.startDoorbell("front", playChime = false, maxDurationSeconds = 30)
+        assertEquals("backyard", coordinator.state.value.pinnedCameraId)
+        advanceTimeBy(30_000)
+        runCurrent()
+
+        assertNull(coordinator.state.value.overlay)
+        assertEquals("backyard", coordinator.state.value.pinnedCameraId)
+        coordinator.unpinCamera()
+        assertNull(coordinator.state.value.pinnedCameraId)
     }
 
     @Test

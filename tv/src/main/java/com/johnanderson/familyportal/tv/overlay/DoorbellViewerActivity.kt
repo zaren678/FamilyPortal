@@ -1,4 +1,4 @@
-package com.johnanderson.familyportal.tv.doorbell
+package com.johnanderson.familyportal.tv.overlay
 
 import android.content.Context
 import android.content.Intent
@@ -58,6 +58,10 @@ class DoorbellViewerActivity : ComponentActivity() {
                         homeAssistantUrl = settings.homeAssistantUrl,
                         repository = graph.cameraRepository,
                         active = lifecycleState.isAtLeast(Lifecycle.State.RESUMED),
+                        onPin = { camera ->
+                            TvOverlayService.pinCamera(this@DoorbellViewerActivity, camera.id)
+                            finish()
+                        },
                         onExit = { finish() },
                     )
                 }

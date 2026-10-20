@@ -7,6 +7,7 @@ import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -31,8 +32,8 @@ import androidx.tv.material3.SurfaceDefaults
 import com.johnanderson.familyportal.FamilyPortalApplication
 import com.johnanderson.familyportal.PortalViewModel
 import com.johnanderson.familyportal.ha.HomeAssistantAuthActivity
-import com.johnanderson.familyportal.tv.doorbell.TvDoorbellService
-import com.johnanderson.familyportal.tv.doorbell.doorbellPopupConfigured
+import com.johnanderson.familyportal.tv.overlay.TvOverlayService
+import com.johnanderson.familyportal.tv.overlay.doorbellPopupConfigured
 import com.johnanderson.familyportal.tv.ui.FamilyPortalTvTheme
 import com.johnanderson.familyportal.tv.ui.TvPortalScreen
 import com.johnanderson.familyportal.tv.ui.StatusLevel
@@ -83,12 +84,14 @@ private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
     val homeAssistantCatalog by viewModel.homeAssistantCatalog.collectAsStateWithLifecycle()
     val homeAssistantError by viewModel.homeAssistantSetupError.collectAsStateWithLifecycle()
     val doorbellConnection by viewModel.graph.homeAssistantClient.connectionState.collectAsStateWithLifecycle()
+    val pinnedCameraId = viewModel.appState.collectAsStateWithLifecycle().value.pinnedCameraId
     var showSetup by rememberSaveable { mutableStateOf(false) }
     var showStatus by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val activity = LocalActivity.current
     val popupConfigured = doorbellPopupConfigured(settings)
     LaunchedEffect(popupConfigured) {
-        if (popupConfigured) TvDoorbellService.start(context)
+        if (popupConfigured) TvOverlayService.start(context)
     }
     // Re-checked on every lifecycle change so it updates after returning from system settings.
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
@@ -165,7 +168,7 @@ private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
             onSelectDoorbellSensor = viewModel::selectDoorbellSensor,
             onSelectDoorbellCamera = viewModel::setDoorbellCamera,
             onOpenOverlaySettings = { openOverlaySettings(context) },
-            onTestDoorbellPopup = { TvDoorbellService.showTestPopup(context) },
+            onTestDoorbellPopup = { TvOverlayService.showTestPopup(context) },
             onOpenStatus = { showStatus = true },
             onDone = { showSetup = false },
         )
@@ -178,8 +181,18 @@ private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
             weather = weather,
             cameraRepository = viewModel.graph.cameraRepository,
             statusProblem = statusItems.any { it.level == StatusLevel.PROBLEM },
+            pinnedCameraId = pinnedCameraId,
             onOpenSetup = { showSetup = true },
             onOpenStatus = { showStatus = true },
+            onTogglePin = { cameraId ->
+                if (cameraId == pinnedCameraId) viewModel.graph.coordinator.unpinCamera()
+                else TvOverlayService.pinCamera(context, cameraId)
+            },
+            onPinAndLeave = { cameraId ->
+                TvOverlayService.pinCamera(context, cameraId)
+                // Back to whatever was playing; the pin shows once Family Portal is hidden.
+                activity?.moveTaskToBack(true)
+            },
         )
     }
 }

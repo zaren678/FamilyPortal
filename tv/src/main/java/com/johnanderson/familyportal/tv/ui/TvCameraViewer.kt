@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -42,8 +43,8 @@ import com.johnanderson.familyportal.core.CameraConfig
 import com.johnanderson.familyportal.ui.FullScreenCameraVideo
 
 /**
- * Full-screen camera on TV. Left/Right switches camera, OK toggles audio when the
- * camera has it, Back returns. Always starts muted, like the Portal viewer.
+ * Full-screen camera on TV. Left/Right switches camera, Down pins it to the corner,
+ * OK toggles audio when the camera has it, Back returns. Always starts muted.
  */
 @Composable
 fun TvCameraViewer(
@@ -52,6 +53,7 @@ fun TvCameraViewer(
     homeAssistantUrl: String,
     repository: CameraRepository,
     active: Boolean,
+    onPin: (CameraConfig) -> Unit,
     onExit: (lastCameraId: String) -> Unit,
 ) {
     var index by rememberSaveable(initialCameraId) {
@@ -79,6 +81,10 @@ fun TvCameraViewer(
                         if (cameras.size < 2) return@onKeyEvent false
                         val step = if (event.key == Key.DirectionRight) 1 else -1
                         index = (index + step + cameras.size) % cameras.size
+                        true
+                    }
+                    Key.DirectionDown -> {
+                        if (event.nativeKeyEvent.repeatCount == 0) onPin(camera)
                         true
                     }
                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
@@ -120,6 +126,7 @@ fun TvCameraViewer(
                             hints.forEach { hint ->
                                 when (hint) {
                                     ViewerHint.SWITCH_CAMERA -> RemoteHint(key = "◀ ▶", label = "Cameras")
+                                    ViewerHint.PIN -> RemoteHint(key = "▼", icon = Icons.Default.PushPin, iconDescription = "Pin")
                                     ViewerHint.TOGGLE_AUDIO -> RemoteHint(
                                         key = "OK",
                                         icon = if (muted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
@@ -135,12 +142,13 @@ fun TvCameraViewer(
     }
 }
 
-internal enum class ViewerHint { SWITCH_CAMERA, TOGGLE_AUDIO }
+internal enum class ViewerHint { SWITCH_CAMERA, PIN, TOGGLE_AUDIO }
 
 /** Remote hints worth showing; Back is left out since it always returns. */
 internal fun viewerHints(canSwitch: Boolean, audioAvailable: Boolean): List<ViewerHint> =
     listOfNotNull(
         ViewerHint.SWITCH_CAMERA.takeIf { canSwitch },
+        ViewerHint.PIN,
         ViewerHint.TOGGLE_AUDIO.takeIf { audioAvailable },
     )
 

@@ -42,7 +42,7 @@
 
         <!-- Own task so Back returns to whatever was playing when the doorbell popup appeared. -->
         <activity
-            android:name=".doorbell.DoorbellViewerActivity"
+            android:name=".overlay.DoorbellViewerActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|uiMode"
             android:excludeFromRecents="true"
             android:exported="false"
@@ -50,12 +50,12 @@
             android:taskAffinity="" />
 
         <service
-            android:name=".doorbell.TvDoorbellService"
+            android:name=".overlay.TvOverlayService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
         <receiver
-            android:name=".doorbell.TvBootReceiver"
+            android:name=".overlay.TvBootReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

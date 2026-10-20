@@ -1,4 +1,4 @@
-package com.johnanderson.familyportal.tv.doorbell
+package com.johnanderson.familyportal.tv.overlay
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -12,6 +12,6 @@ class TvBootReceiver : BroadcastReceiver() {
         ) {
             return
         }
-        TvDoorbellService.start(context)
+        TvOverlayService.start(context)
     }
 }

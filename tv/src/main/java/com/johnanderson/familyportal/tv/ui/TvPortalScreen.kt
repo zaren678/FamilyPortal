@@ -31,7 +31,9 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.EventBusy
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.filled.VideocamOff
@@ -61,6 +63,7 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.OutlinedIconButton
 import androidx.tv.material3.OutlinedIconButtonDefaults
 import androidx.tv.material3.Surface
@@ -98,8 +101,11 @@ fun TvPortalScreen(
     weather: WeatherSnapshot?,
     cameraRepository: CameraRepository,
     statusProblem: Boolean,
+    pinnedCameraId: String?,
     onOpenSetup: () -> Unit,
     onOpenStatus: () -> Unit,
+    onTogglePin: (String) -> Unit,
+    onPinAndLeave: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -136,6 +142,11 @@ fun TvPortalScreen(
             homeAssistantUrl = settings.homeAssistantUrl,
             repository = cameraRepository,
             active = active,
+            onPin = { camera ->
+                lastViewedCameraId = camera.id
+                fullscreenCameraId = null
+                onPinAndLeave(camera.id)
+            },
             onExit = { lastCameraId ->
                 lastViewedCameraId = lastCameraId
                 fullscreenCameraId = null
@@ -161,8 +172,10 @@ fun TvPortalScreen(
             zone = zone,
             weather = weather,
             showStatusWarning = showStatusWarning,
+            pinnedCameraName = cameras.firstOrNull { it.id == pinnedCameraId }?.name,
             onOpenSetup = onOpenSetup,
             onOpenStatus = onOpenStatus,
+            onUnpin = { pinnedCameraId?.let(onTogglePin) },
             settingsInitialFocus = initialFocus.takeIf {
                 !needsSetup && cameras.isEmpty() && agendaSections.all { it.events.isEmpty() }
             },
@@ -182,7 +195,9 @@ fun TvPortalScreen(
                     active = active,
                     focusCameraId = lastViewedCameraId ?: cameras.firstOrNull()?.id,
                     initialFocus = initialFocus,
+                    pinnedCameraId = pinnedCameraId,
                     onCameraSelected = { fullscreenCameraId = it },
+                    onTogglePin = onTogglePin,
                     modifier = Modifier.weight(1.6f).fillMaxHeight(),
                 )
                 TvAgenda(
@@ -228,8 +243,10 @@ private fun TvHeader(
     zone: ZoneId,
     weather: WeatherSnapshot?,
     showStatusWarning: Boolean,
+    pinnedCameraName: String?,
     onOpenSetup: () -> Unit,
     onOpenStatus: () -> Unit,
+    onUnpin: () -> Unit,
     settingsInitialFocus: InitialFocus?,
 ) {
     val local = now.atZone(zone)
@@ -244,6 +261,16 @@ private fun TvHeader(
         }
         weather?.let { TvWeatherSummary(it) }
         Spacer(Modifier.width(32.dp))
+        if (pinnedCameraName != null) {
+            OutlinedButton(onClick = onUnpin) {
+                Icon(Icons.Default.PushPin, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(pinnedCameraName)
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Default.Close, contentDescription = "Unpin")
+            }
+            Spacer(Modifier.width(16.dp))
+        }
         if (showStatusWarning) {
             OutlinedIconButton(
                 onClick = onOpenStatus,
@@ -330,7 +357,9 @@ private fun TvCameraGrid(
     active: Boolean,
     focusCameraId: String?,
     initialFocus: InitialFocus,
+    pinnedCameraId: String?,
     onCameraSelected: (String) -> Unit,
+    onTogglePin: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (cameras.isEmpty() || homeAssistantUrl.isBlank()) {
@@ -361,7 +390,9 @@ private fun TvCameraGrid(
                 repository = repository,
                 active = active,
                 startupDelayMillis = index * 600L,
+                pinned = camera.id == pinnedCameraId,
                 onClick = { onCameraSelected(camera.id) },
+                onLongClick = { onTogglePin(camera.id) },
                 modifier = Modifier.initialFocus(initialFocus, enabled = camera.id == focusCameraId),
             )
         }
@@ -375,11 +406,14 @@ private fun TvCameraTile(
     repository: CameraRepository,
     active: Boolean,
     startupDelayMillis: Long,
+    pinned: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(16f / 9f),
@@ -402,6 +436,19 @@ private fun TvCameraTile(
             startupDelayMillis = startupDelayMillis,
             modifier = Modifier.fillMaxSize(),
         )
+        if (pinned) {
+            Icon(
+                Icons.Default.PushPin,
+                contentDescription = "Pinned",
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                    .padding(4.dp)
+                    .size(20.dp),
+            )
+        }
         Text(
             camera.name,
             modifier = Modifier

@@ -71,7 +71,7 @@ Secrets are stored with an Android Keystore AES-GCM key and are not logged. Cale
 
 ## Android TV
 
-The TV app shows live cameras, today's agenda, and weather, plus an optional doorbell popup. It has no HOME role or PIN.
+The TV app shows live cameras, today's agenda, and weather, plus a pinned camera and an optional doorbell popup. It has no HOME role or PIN.
 
 ```bash
 ./gradlew :tv:assembleDebug
@@ -85,6 +85,10 @@ Open Family Portal from the TV's app row, choose **Set up**, then:
 3. Turn on the cameras to show and choose a weather entity.
 
 On the dashboard, press OK on a camera to view it full screen; Left/Right switches cameras, OK toggles audio when available, and Back returns. The TV screensaver is only blocked while a camera is full screen.
+
+### Pin a camera
+
+Long-press OK on a dashboard camera, or press Down while watching one full screen, to pin it. Whenever Family Portal isn't on screen, the pinned camera stays live and muted in the top-right corner without taking the remote. A doorbell alert takes over the corner and the pin returns when it ends. Unpin from the chip next to Settings on the dashboard, or long-press the camera again; pins also clear when the TV goes to sleep.
 
 ### Doorbell popup
 

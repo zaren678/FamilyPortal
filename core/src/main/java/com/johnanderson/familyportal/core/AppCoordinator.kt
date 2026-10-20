@@ -57,6 +57,14 @@ class AppCoordinator(private val scope: CoroutineScope) {
         alertTimeout = null
     }
 
+    fun pinCamera(cameraId: String) {
+        _state.update { it.copy(pinnedCameraId = cameraId) }
+    }
+
+    fun unpinCamera() {
+        _state.update { it.copy(pinnedCameraId = null) }
+    }
+
     fun setHomeAssistantState(connectionState: ConnectionState) {
         _state.update { it.copy(homeAssistantState = connectionState) }
     }

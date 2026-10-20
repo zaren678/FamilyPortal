@@ -1,5 +1,5 @@
 <resources>
     <string name="app_name">Family Portal</string>
-    <string name="doorbell_service_channel_name">Doorbell listener</string>
-    <string name="doorbell_service_notification">Watching for people at the door</string>
+    <string name="overlay_service_channel_name">Camera overlay</string>
+    <string name="overlay_service_notification">Doorbell popup and pinned camera</string>
 </resources>

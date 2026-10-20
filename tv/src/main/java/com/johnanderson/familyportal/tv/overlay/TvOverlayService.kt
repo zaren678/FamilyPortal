@@ -1,11 +1,13 @@
-package com.johnanderson.familyportal.tv.doorbell
+package com.johnanderson.familyportal.tv.overlay
 
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -13,9 +15,13 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.johnanderson.familyportal.FamilyPortalApplication
 import com.johnanderson.familyportal.core.AppSettings
+import com.johnanderson.familyportal.core.AppUiState
 import com.johnanderson.familyportal.core.CameraConfig
 import com.johnanderson.familyportal.core.PortalOverlay
 import com.johnanderson.familyportal.ha.DoorbellTransition
@@ -24,6 +30,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -32,14 +39,27 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Listens for the doorbell sensor while the TV is in use and shows [DoorbellPopup]
- * over whatever is playing. Stops itself when the doorbell isn't set up.
+ * Runs the top-right camera window: doorbell alerts from the Home Assistant sensor,
+ * and a pinned camera that comes back once an alert ends. Stops itself when the
+ * doorbell isn't set up and nothing is pinned.
  */
-class TvDoorbellService : Service() {
+class TvOverlayService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val graph get() = (application as FamilyPortalApplication).graph
-    private lateinit var popup: DoorbellPopup
+    private lateinit var overlay: CameraOverlay
+    private val dreaming = MutableStateFlow(false)
     private var watchingConfiguration = false
+
+    private val systemEvents = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                // A pin is for this viewing session; don't bring it back after sleep.
+                Intent.ACTION_SCREEN_OFF -> graph.coordinator.unpinCamera()
+                Intent.ACTION_DREAMING_STARTED -> dreaming.value = true
+                Intent.ACTION_DREAMING_STOPPED -> dreaming.value = false
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -54,15 +74,22 @@ class TvDoorbellService : Service() {
                 0
             },
         )
-        popup = DoorbellPopup(
+        overlay = CameraOverlay(
             context = this,
             repository = graph.cameraRepository,
-            onOpen = ::openFullScreen,
-            onDismiss = { graph.coordinator.dismissOverlay() },
+            onOpenDoorbell = ::openFullScreen,
+            onDismissDoorbell = { graph.coordinator.dismissOverlay() },
         )
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_DREAMING_STARTED)
+            addAction(Intent.ACTION_DREAMING_STOPPED)
+        }
+        ContextCompat.registerReceiver(this, systemEvents, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         listenForDoorbell()
         scope.launch(Dispatchers.IO) { graph.doorbellMonitor.keepDoorbellStreamWarm() }
-        showPopupWhileAlerting()
+        showOverlay()
+        unpinRemovedCameras()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -82,7 +109,8 @@ class TvDoorbellService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        popup.hide()
+        unregisterReceiver(systemEvents)
+        overlay.hide()
         scope.cancel()
         super.onDestroy()
     }
@@ -114,23 +142,28 @@ class TvDoorbellService : Service() {
         }
     }
 
-    private fun showPopupWhileAlerting() {
+    private fun showOverlay() {
+        // Family Portal's own screens already show every camera, so the pin waits
+        // until the app is in the background.
+        val appVisible = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
+            .map { it.isAtLeast(Lifecycle.State.STARTED) }
         scope.launch {
             combine(
-                graph.coordinator.state.map { it.overlay as? PortalOverlay.Doorbell },
+                graph.coordinator.state,
                 graph.settingsRepository.settings,
-            ) { alert, settings ->
-                alert?.let { doorbell ->
-                    PopupTarget(
-                        camera = settings.cameras.firstOrNull { it.id == doorbell.cameraId },
-                        homeAssistantUrl = settings.homeAssistantUrl,
-                    )
-                }
-            }
+                appVisible,
+                dreaming,
+            ) { state, settings, visible, isDreaming -> overlayContent(state, settings, visible, isDreaming) }
                 .distinctUntilChanged()
-                .collect { target ->
-                    if (target == null) popup.hide() else popup.show(target.camera, target.homeAssistantUrl)
-                }
+                .collect { content -> if (content == null) overlay.hide() else overlay.show(content) }
+        }
+    }
+
+    private fun unpinRemovedCameras() {
+        scope.launch {
+            combine(graph.coordinator.state, graph.settingsRepository.settings) { state, settings ->
+                state.pinnedCameraId?.takeIf { id -> settings.cameras.none { it.id == id } }
+            }.collect { removed -> if (removed != null) graph.coordinator.unpinCamera() }
         }
     }
 
@@ -155,12 +188,12 @@ class TvDoorbellService : Service() {
     private suspend fun stopWhenNotNeeded() {
         combine(
             graph.settingsRepository.settings.map(::doorbellPopupConfigured),
-            graph.coordinator.state.map { it.overlay is PortalOverlay.Doorbell },
-        ) { configured, alerting -> configured || alerting }
+            graph.coordinator.state,
+        ) { configured, state -> configured || state.overlay is PortalOverlay.Doorbell || state.pinnedCameraId != null }
             .distinctUntilChanged()
             .collect { needed ->
                 if (!needed) {
-                    Log.i(TAG, "Doorbell popup isn't set up; stopping")
+                    Log.i(TAG, "No doorbell popup or pinned camera; stopping")
                     stopSelf()
                 }
             }
@@ -169,7 +202,7 @@ class TvDoorbellService : Service() {
     private fun serviceNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_launcher)
         .setContentTitle(getString(R.string.app_name))
-        .setContentText(getString(R.string.doorbell_service_notification))
+        .setContentText(getString(R.string.overlay_service_notification))
         .setOngoing(true)
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
         .build()
@@ -178,16 +211,14 @@ class TvDoorbellService : Service() {
         getSystemService<NotificationManager>()?.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                getString(R.string.doorbell_service_channel_name),
+                getString(R.string.overlay_service_channel_name),
                 NotificationManager.IMPORTANCE_LOW,
             ),
         )
     }
 
-    private data class PopupTarget(val camera: CameraConfig?, val homeAssistantUrl: String)
-
     companion object {
-        private const val TAG = "FamilyPortalTvDoorbell"
+        private const val TAG = "FamilyPortalTvOverlay"
         private const val CHANNEL_ID = "doorbell_listener"
         private const val NOTIFICATION_ID = 21
         private const val DOORBELL_MAX_DURATION_SECONDS = 4 * 60
@@ -195,13 +226,20 @@ class TvDoorbellService : Service() {
         private const val ACTION_TEST_POPUP = "com.johnanderson.familyportal.tv.action.TEST_DOORBELL_POPUP"
 
         fun start(context: Context) {
-            context.startForegroundService(Intent(context, TvDoorbellService::class.java))
+            context.startForegroundService(Intent(context, TvOverlayService::class.java))
         }
 
         fun showTestPopup(context: Context) {
             context.startForegroundService(
-                Intent(context, TvDoorbellService::class.java).setAction(ACTION_TEST_POPUP),
+                Intent(context, TvOverlayService::class.java).setAction(ACTION_TEST_POPUP),
             )
+        }
+
+        /** Keeps [cameraId] in the corner window whenever Family Portal isn't on screen. */
+        fun pinCamera(context: Context, cameraId: String) {
+            // Pin before starting so the service sees it and doesn't stop itself.
+            (context.applicationContext as FamilyPortalApplication).graph.coordinator.pinCamera(cameraId)
+            start(context)
         }
     }
 }
@@ -211,3 +249,21 @@ internal fun doorbellPopupConfigured(settings: AppSettings): Boolean =
     settings.homeAssistantUrl.isNotBlank() &&
         settings.doorbellSensorEntityId.isNotBlank() &&
         settings.cameras.any { it.isDoorbell }
+
+/** A doorbell alert takes the corner; otherwise the pin, unless Family Portal or the screensaver is showing. */
+internal fun overlayContent(
+    state: AppUiState,
+    settings: AppSettings,
+    appVisible: Boolean,
+    dreaming: Boolean,
+): OverlayContent? {
+    (state.overlay as? PortalOverlay.Doorbell)?.let { alert ->
+        return OverlayContent.Doorbell(
+            camera = settings.cameras.firstOrNull { it.id == alert.cameraId },
+            homeAssistantUrl = settings.homeAssistantUrl,
+        )
+    }
+    if (appVisible || dreaming) return null
+    val pinned = settings.cameras.firstOrNull { it.id == state.pinnedCameraId } ?: return null
+    return OverlayContent.Pinned(pinned, settings.homeAssistantUrl)
+}

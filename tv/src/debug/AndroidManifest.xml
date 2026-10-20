@@ -5,7 +5,7 @@
         <!-- Debug builds only. Shows a test doorbell popup over whatever is playing:
              adb shell am broadcast -a com.johnanderson.familyportal.tv.DEBUG_DOORBELL -p com.johnanderson.familyportal.tv -->
         <receiver
-            android:name=".doorbell.DebugDoorbellReceiver"
+            android:name=".overlay.DebugDoorbellReceiver"
             android:exported="true"
             tools:ignore="ExportedReceiver">
             <intent-filter>

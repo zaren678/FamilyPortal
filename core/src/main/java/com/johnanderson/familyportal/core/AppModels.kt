@@ -20,6 +20,8 @@ data class AppUiState(
     val selectedTab: PortalTab = PortalTab.TODAY,
     val overlay: PortalOverlay? = null,
     val homeAssistantState: ConnectionState = ConnectionState.DISCONNECTED,
+    /** A camera kept on screen in a corner window (TV only). Survives doorbell alerts. */
+    val pinnedCameraId: String? = null,
 )
 
 @Serializable
