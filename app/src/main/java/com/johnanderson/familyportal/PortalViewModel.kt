@@ -172,11 +172,6 @@ class PortalViewModel(
         _googleAuthBusy.value = false
     }
 
-    fun completeGoogleSignIn(callback: android.net.Uri) = viewModelScope.launch {
-        val result = graph.googleAuthManager.handleAuthorizationRedirect(callback)
-        if (result.isSuccess) graph.calendarRepository.syncNow()
-    }
-
     fun signOutGoogle() {
         graph.googleAuthManager.signOut()
     }

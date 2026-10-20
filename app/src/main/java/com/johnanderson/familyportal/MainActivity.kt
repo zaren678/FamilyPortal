@@ -118,8 +118,6 @@ class MainActivity : ComponentActivity() {
     private fun handleAuthorizationCallback(intent: Intent) {
         val callback = intent.data ?: return
         when {
-            portalViewModel.graph.googleAuthManager.isAuthorizationCallback(callback) ->
-                portalViewModel.completeGoogleSignIn(callback)
             HomeAssistantAuthManager.isAuthorizationCallback(callback) ->
                 portalViewModel.completeHomeAssistantAuthorization(callback)
             else -> return

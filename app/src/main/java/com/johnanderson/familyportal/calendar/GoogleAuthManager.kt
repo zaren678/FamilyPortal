@@ -1,9 +1,7 @@
 package com.johnanderson.familyportal.calendar
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
-import android.util.Log
 import com.johnanderson.familyportal.R
 import com.johnanderson.familyportal.core.SecureStore
 import kotlinx.coroutines.Dispatchers
@@ -18,12 +16,8 @@ import kotlinx.coroutines.withContext
 import net.openid.appauth.AppAuthConfiguration
 import net.openid.appauth.AuthState
 import net.openid.appauth.browser.BrowserMatcher
-import net.openid.appauth.AuthorizationException
-import net.openid.appauth.AuthorizationRequest
-import net.openid.appauth.AuthorizationResponse
 import net.openid.appauth.AuthorizationService
 import net.openid.appauth.AuthorizationServiceConfiguration
-import net.openid.appauth.ResponseTypeValues
 import net.openid.appauth.TokenRequest
 import net.openid.appauth.TokenResponse
 import okhttp3.FormBody
@@ -45,8 +39,6 @@ class GoogleAuthManager(
     private val secureStore: SecureStore,
     private val httpClient: OkHttpClient,
 ) {
-    private val appContext = context.applicationContext
-    private val clientId = context.getString(R.string.google_oauth_client_id)
     private val deviceClientId = context.getString(R.string.google_device_oauth_client_id)
     private val deviceClientSecret = context.getString(R.string.google_device_oauth_client_secret)
     private val authorizationService = AuthorizationService(
@@ -166,77 +158,6 @@ class GoogleAuthManager(
             }
         }
 
-    fun authorizationIntent(): Intent {
-        check(isConfigured) { "Set GOOGLE_OAUTH_CLIENT_ID in local.properties" }
-        val request = AuthorizationRequest.Builder(
-            serviceConfiguration,
-            clientId,
-            ResponseTypeValues.CODE,
-            redirectUri(),
-        )
-            .setScopes(
-                "openid",
-                "email",
-                "https://www.googleapis.com/auth/calendar.readonly",
-            )
-            .setPrompt("consent")
-            .setAdditionalParameters(mapOf("access_type" to "offline"))
-            .build()
-        secureStore.put(SecureStore.GOOGLE_AUTH_REQUEST, request.jsonSerializeString())
-        val browserIntent = Intent(Intent.ACTION_VIEW, request.toUri())
-            .addCategory(Intent.CATEGORY_BROWSABLE)
-        val portalBrowserIntent = Intent(browserIntent).setClassName(
-            PORTAL_BROWSER_PACKAGE,
-            PORTAL_BROWSER_ACTIVITY,
-        )
-        return if (portalBrowserIntent.resolveActivity(appContext.packageManager) != null) {
-            portalBrowserIntent
-        } else {
-            browserIntent
-        }
-    }
-
-    suspend fun handleAuthorizationRedirect(callback: Uri): Result<Unit> {
-        if (!isAuthorizationCallback(callback)) {
-            return Result.failure(IllegalArgumentException("Invalid Google authorization callback"))
-        }
-        val request = secureStore.get(SecureStore.GOOGLE_AUTH_REQUEST)
-            ?.let { runCatching { AuthorizationRequest.jsonDeserialize(it) }.getOrNull() }
-            ?: return Result.failure(IllegalStateException("Google authorization request was missing"))
-        callback.getQueryParameter("error")?.let {
-            val exception = AuthorizationException.fromOAuthRedirect(callback)
-            authState.update(null as AuthorizationResponse?, exception)
-            persist()
-            return Result.failure(exception)
-        }
-        val response = runCatching { AuthorizationResponse.Builder(request).fromUri(callback).build() }
-            .getOrElse { return Result.failure(it) }
-        if (response.state != request.state) {
-            return Result.failure(IllegalStateException("Google authorization state did not match"))
-        }
-        authState.update(response, null)
-        persist()
-        return runCatching {
-            suspendCancellableCoroutine { continuation ->
-                authorizationService.performTokenRequest(response.createTokenExchangeRequest()) { token, error ->
-                    authState.update(token, error)
-                    persist()
-                    _authorized.value = authState.isAuthorized
-                    when {
-                        continuation.isCompleted -> Unit
-                        token != null -> {
-                            secureStore.remove(SecureStore.GOOGLE_AUTH_REQUEST)
-                            continuation.resume(Unit)
-                        }
-                        else -> continuation.resumeWithException(
-                            error ?: IllegalStateException("Google token exchange failed"),
-                        )
-                    }
-                }
-            }
-        }
-    }
-
     suspend fun accessToken(): String {
         val deviceAuthorized = authState.lastAuthorizationResponse == null &&
             authState.lastTokenResponse?.request?.clientId == deviceClientId &&
@@ -301,18 +222,11 @@ class GoogleAuthManager(
         authState = AuthState(serviceConfiguration)
         _authorized.value = false
         secureStore.remove(SecureStore.GOOGLE_AUTH_STATE)
+        // Left over from the removed browser sign-in flow on older installs.
         secureStore.remove(SecureStore.GOOGLE_AUTH_REQUEST)
     }
 
     fun close() = authorizationService.dispose()
-
-    fun isAuthorizationCallback(uri: Uri): Boolean =
-        uri.scheme == redirectUri().scheme && uri.path == redirectUri().path
-
-    private fun redirectUri(): Uri {
-        val clientPrefix = clientId.substringBefore(".apps.googleusercontent.com")
-        return Uri.parse("com.googleusercontent.apps.$clientPrefix:/oauth2redirect")
-    }
 
     private fun loadState(): AuthState = secureStore.get(SecureStore.GOOGLE_AUTH_STATE)
         ?.let { runCatching { AuthState.jsonDeserialize(it) }.getOrNull() }
@@ -345,8 +259,5 @@ class GoogleAuthManager(
             "email",
             "https://www.googleapis.com/auth/calendar.readonly",
         )
-        private const val PORTAL_BROWSER_PACKAGE = "org.chromium.chrome"
-        private const val PORTAL_BROWSER_ACTIVITY =
-            "org.chromium.chrome.browser.ChromeTabbedActivity"
     }
 }

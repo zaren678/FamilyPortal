@@ -13,10 +13,6 @@ val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use(::load)
 }
-val googleClientId = localProperties.getProperty(
-    "GOOGLE_OAUTH_CLIENT_ID",
-    "000000000000-placeholder.apps.googleusercontent.com",
-)
 val googleDeviceClientId = localProperties.getProperty(
     "GOOGLE_DEVICE_OAUTH_CLIENT_ID",
     "000000000000-placeholder.apps.googleusercontent.com",
@@ -25,7 +21,6 @@ val googleDeviceClientSecret = localProperties.getProperty(
     "GOOGLE_DEVICE_OAUTH_CLIENT_SECRET",
     "placeholder",
 )
-val oauthScheme = "com.googleusercontent.apps.${googleClientId.substringBefore(".apps.googleusercontent.com")}"
 val keystoreProperties = Properties().apply {
     val file = rootProject.file("keystore.properties")
     if (file.exists()) file.inputStream().use(::load)
@@ -43,10 +38,8 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        resValue("string", "google_oauth_client_id", googleClientId)
         resValue("string", "google_device_oauth_client_id", googleDeviceClientId)
         resValue("string", "google_device_oauth_client_secret", googleDeviceClientSecret)
-        manifestPlaceholders["appAuthRedirectScheme"] = oauthScheme
     }
 
     signingConfigs {

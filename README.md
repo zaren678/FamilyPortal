@@ -13,11 +13,11 @@ Dedicated landscape Android dashboard for a shared Google Calendar, Home Assista
 ## Google OAuth
 
 1. Create a release keystore outside this repository and keep it backed up.
-2. Register an Android OAuth client for `com.johnanderson.familyportal` and the release certificate SHA-1.
-3. Copy `local.properties.example` to `local.properties` and set the real client ID.
+2. Create an OAuth client of type "TVs and Limited Input devices". It is not tied to a package name or signing certificate.
+3. Copy `local.properties.example` to `local.properties` and set `GOOGLE_DEVICE_OAUTH_CLIENT_ID` and `GOOGLE_DEVICE_OAUTH_CLIENT_SECRET`.
 4. Move the OAuth consent screen out of Testing before appliance deployment so the refresh token does not expire after seven days.
 
-The app requests only identity, email, and `calendar.readonly`. Authentication occurs in a system browser through AppAuth; embedded WebView sign-in is not supported.
+The app requests only identity, email, and `calendar.readonly` using Google's device-code flow: the device shows a code that you enter at google.com/device on a phone or computer.
 
 ## Build
 
