@@ -31,7 +31,7 @@ enum class DoorbellTransition { START, STOP }
 
 class HomeAssistantAuthenticationException(message: String) : IOException(message)
 
-internal fun HomeAssistantStateChange.doorbellTransition(
+fun HomeAssistantStateChange.doorbellTransition(
     sensorEntityId: String,
 ): DoorbellTransition? {
     if (entityId != sensorEntityId) return null

@@ -300,25 +300,6 @@ private fun CalendarEventEntity.nextEventLabel(now: Instant, zone: ZoneId): Stri
     }
 }
 
-internal fun eventsForDay(
-    events: List<CalendarEventEntity>,
-    day: LocalDate,
-    zone: ZoneId = ZoneId.systemDefault(),
-): List<CalendarEventEntity> {
-    val dayStart = day.atStartOfDay(zone).toInstant().toEpochMilli()
-    val dayEnd = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-    return events.filter { it.startEpochMillis < dayEnd && it.endEpochMillis > dayStart }
-        .sortedWith(compareByDescending<CalendarEventEntity> { it.allDay }
-            .thenBy { it.startEpochMillis })
-}
-
-internal fun nextTimedEvent(
-    events: List<CalendarEventEntity>,
-    now: Instant,
-): CalendarEventEntity? = events.firstOrNull {
-    !it.allDay && it.endEpochMillis > now.toEpochMilli()
-}
-
 private const val CLOCK_REFRESH_MILLIS = 30_000L
 private val DAY_DATE = DateTimeFormatter.ofPattern("EEEE, MMMM d")
 private val CLOCK_TIME = DateTimeFormatter.ofPattern("h:mm a")

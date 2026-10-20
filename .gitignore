@@ -3,8 +3,7 @@
 .idea/
 /local.properties
 /.kotlin/
-/build/
-/app/build/
+build/
 *.jks
 *.keystore
 keystore.properties

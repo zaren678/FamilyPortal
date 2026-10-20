@@ -23,7 +23,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
-internal fun EventDetailDialog(
+fun EventDetailDialog(
     event: CalendarEventEntity,
     onDismiss: () -> Unit,
 ) {

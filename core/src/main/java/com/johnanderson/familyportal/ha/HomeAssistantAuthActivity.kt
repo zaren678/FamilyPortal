@@ -1,6 +1,8 @@
 package com.johnanderson.familyportal.ha
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -9,7 +11,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
-import com.johnanderson.familyportal.MainActivity
+import androidx.activity.result.contract.ActivityResultContract
 
 class HomeAssistantAuthActivity : ComponentActivity() {
     private lateinit var webView: WebView
@@ -52,19 +54,22 @@ class HomeAssistantAuthActivity : ComponentActivity() {
 
     private fun handleUri(uri: Uri): Boolean {
         if (!HomeAssistantAuthManager.isAuthorizationCallback(uri)) return false
-        startActivity(
-            Intent(this, MainActivity::class.java)
-                .setData(uri)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-        )
+        setResult(Activity.RESULT_OK, Intent().setData(uri))
         finish()
         return true
     }
 
+    /** Launches the login page and returns the authorization callback, or null if cancelled. */
+    class Authorize : ActivityResultContract<Uri, Uri?>() {
+        override fun createIntent(context: Context, input: Uri): Intent =
+            Intent(context, HomeAssistantAuthActivity::class.java)
+                .putExtra(EXTRA_AUTHORIZATION_URL, input.toString())
+
+        override fun parseResult(resultCode: Int, intent: Intent?): Uri? =
+            intent?.data?.takeIf { resultCode == Activity.RESULT_OK }
+    }
+
     companion object {
         const val EXTRA_AUTHORIZATION_URL = "authorization_url"
-        fun intent(context: android.content.Context, authorizationUri: Uri): Intent =
-            Intent(context, HomeAssistantAuthActivity::class.java)
-                .putExtra(EXTRA_AUTHORIZATION_URL, authorizationUri.toString())
     }
 }

@@ -9,6 +9,7 @@ import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -64,7 +65,6 @@ import com.johnanderson.familyportal.core.ConnectionState
 import com.johnanderson.familyportal.core.PortalOverlay
 import com.johnanderson.familyportal.core.PortalTab
 import com.johnanderson.familyportal.ha.HomeAssistantAuthActivity
-import com.johnanderson.familyportal.ha.HomeAssistantAuthManager
 import com.johnanderson.familyportal.service.AlertReadiness
 import com.johnanderson.familyportal.service.DoorbellService
 import com.johnanderson.familyportal.service.appNotificationSettingsIntent
@@ -90,7 +90,6 @@ class MainActivity : ComponentActivity() {
         hideSystemUi()
         requestNotificationPermission()
         DoorbellService.start(this)
-        handleAuthorizationCallback(intent)
         setContent {
             FamilyPortalTheme {
                 FamilyPortalApp(portalViewModel)
@@ -113,16 +112,6 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleAuthorizationCallback(intent)
-    }
-    private fun handleAuthorizationCallback(intent: Intent) {
-        val callback = intent.data ?: return
-        when {
-            HomeAssistantAuthManager.isAuthorizationCallback(callback) ->
-                portalViewModel.completeHomeAssistantAuthorization(callback)
-            else -> return
-        }
-        intent.data = null
     }
     override fun onResume() {
         super.onResume()
@@ -234,6 +223,9 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
     var requestPin by remember { mutableStateOf(false) }
     var pinError by remember { mutableStateOf<String?>(null) }
     var alertReadiness by remember { mutableStateOf<AlertReadiness?>(null) }
+    val homeAssistantAuthLauncher = rememberLauncherForActivityResult(
+        HomeAssistantAuthActivity.Authorize(),
+    ) { callback -> callback?.let(viewModel::completeHomeAssistantAuthorization) }
     LaunchedEffect(appResumed) {
         if (appResumed) {
             // DoorbellService creates its channels asynchronously after start,
@@ -405,12 +397,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                         onCalendarSelected = viewModel::selectCalendar,
                         onStartHomeAssistantDiscovery = viewModel::startHomeAssistantDiscovery,
                         onAuthorizeHomeAssistant = { baseUrl ->
-                            activity.startActivity(
-                                HomeAssistantAuthActivity.intent(
-                                    activity,
-                                    viewModel.authorizeHomeAssistant(baseUrl),
-                                ),
-                            )
+                            homeAssistantAuthLauncher.launch(viewModel.authorizeHomeAssistant(baseUrl))
                         },
                         onRefreshHomeAssistantEntities = { viewModel.loadHomeAssistantCatalog() },
                         onSelectDoorbellSensor = viewModel::selectDoorbellSensor,

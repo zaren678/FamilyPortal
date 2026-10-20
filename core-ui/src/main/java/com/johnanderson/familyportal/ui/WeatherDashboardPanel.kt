@@ -36,7 +36,7 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun WeatherDashboardPanel(
+fun WeatherDashboardPanel(
     weather: WeatherSnapshot?,
     error: String?,
     now: Instant,
@@ -190,7 +190,7 @@ private fun WeatherConditionIcon(
     )
 }
 
-internal fun weatherConditionIcon(condition: String): ImageVector = when (condition.lowercase()) {
+fun weatherConditionIcon(condition: String): ImageVector = when (condition.lowercase()) {
     "clear-night" -> MdiWeatherIcons.ClearNight
     "cloudy" -> MdiWeatherIcons.Cloudy
     "exceptional", "unknown", "unavailable" -> MdiWeatherIcons.Exceptional

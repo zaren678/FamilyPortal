@@ -2,7 +2,7 @@ package com.johnanderson.familyportal.calendar
 
 import android.content.Context
 import android.net.Uri
-import com.johnanderson.familyportal.R
+import com.johnanderson.familyportal.core.R
 import com.johnanderson.familyportal.core.SecureStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay

@@ -45,7 +45,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -504,51 +503,12 @@ private fun CalendarEventEntity.timeRangeLabel(): String {
     return "${start.format(TIME)}-${end.format(TIME)}"
 }
 
-internal fun parseColor(value: String): Color = runCatching {
-    Color(android.graphics.Color.parseColor(value))
-}.getOrDefault(Color(0xFF607D8B))
-
-internal fun eventBackgroundColor(value: String): Color {
-    val original = parseColor(value)
-    if (contrastRatio(original, EVENT_CONTENT_COLOR) >= MIN_TEXT_CONTRAST) {
-        return original
-    }
-
-    var readableFactor = 0f
-    var unreadableFactor = 1f
-    repeat(12) {
-        val factor = (readableFactor + unreadableFactor) / 2f
-        val candidate = original.scaledRgb(factor)
-        if (contrastRatio(candidate, EVENT_CONTENT_COLOR) >= MIN_TEXT_CONTRAST) {
-            readableFactor = factor
-        } else {
-            unreadableFactor = factor
-        }
-    }
-    return original.scaledRgb(readableFactor)
-}
-
-internal fun contrastRatio(first: Color, second: Color): Float {
-    val lighter = max(first.luminance(), second.luminance())
-    val darker = minOf(first.luminance(), second.luminance())
-    return (lighter + 0.05f) / (darker + 0.05f)
-}
-
-private fun Color.scaledRgb(factor: Float): Color = Color(
-    red = red * factor,
-    green = green * factor,
-    blue = blue * factor,
-    alpha = alpha,
-)
-
 private fun currentWeekStart(): LocalDate {
     val today = LocalDate.now()
     return today.minusDays((today.dayOfWeek.value % DAYS_PER_WEEK).toLong())
 }
 
 private const val DAYS_PER_WEEK = 7
-private const val MIN_TEXT_CONTRAST = 4.5f
-private val EVENT_CONTENT_COLOR = Color.White
 private const val HOURS_PER_DAY = 24
 private const val MINUTES_PER_HOUR = 60f
 private const val DEFAULT_START_HOUR = 7

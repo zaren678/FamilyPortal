@@ -2,6 +2,14 @@
 
 Dedicated landscape Android dashboard for a shared Google Calendar, Home Assistant cameras, and doorbell person alerts.
 
+## Project layout
+
+| Module | Contents |
+| --- | --- |
+| `:core` | Settings and secure storage, Room calendar cache, Google and Home Assistant auth, HA discovery/catalog/weather, `CameraRepository`, `PortalViewModel` |
+| `:core-ui` | Shared Compose: theme, live camera preview and full-screen player, event dialog, calendar colours, weather panel |
+| `:app` | Portal app (`com.johnanderson.familyportal`): touch UI, Settings, doorbell service, boot receiver, HOME role |
+
 ## Prerequisites
 
 - Android Studio with JDK 17 or newer; this machine should use Android Studio's bundled JDK 21.
@@ -25,6 +33,8 @@ The app requests only identity, email, and `calendar.readonly` using Google's de
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 ./gradlew test assembleDebug
 ```
+
+This builds and tests every module. Dependencies come from Google Maven and Maven Central; on a network that requires a proxy, set Gradle's `systemProp.https.proxyHost`/`proxyPort` in `~/.gradle/gradle.properties`.
 
 For release builds, copy `keystore.properties.example` to `keystore.properties`, fill in the external keystore values, and run `./gradlew bundleRelease assembleRelease`.
 
