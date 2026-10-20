@@ -35,7 +35,13 @@ import com.johnanderson.familyportal.tv.doorbell.TvDoorbellService
 import com.johnanderson.familyportal.tv.doorbell.doorbellPopupConfigured
 import com.johnanderson.familyportal.tv.ui.FamilyPortalTvTheme
 import com.johnanderson.familyportal.tv.ui.TvPortalScreen
+import com.johnanderson.familyportal.tv.ui.StatusLevel
 import com.johnanderson.familyportal.tv.ui.TvSetupScreen
+import com.johnanderson.familyportal.tv.ui.TvStatusInput
+import com.johnanderson.familyportal.tv.ui.TvStatusScreen
+import com.johnanderson.familyportal.tv.ui.tvStatusItems
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * Android TV entry point. The TV keeps its own settings and signs in on its own
@@ -69,31 +75,65 @@ private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
     // Null until loaded, so "not loaded yet" isn't mistaken for "nothing set up".
     val settings = viewModel.settings.collectAsStateWithLifecycle().value ?: return
     val events by viewModel.todayEvents.collectAsStateWithLifecycle()
+    val tomorrowEvents by viewModel.tomorrowEvents.collectAsStateWithLifecycle()
     val googleAuthorized by viewModel.googleAuthorized.collectAsStateWithLifecycle()
     val weather by viewModel.weather.collectAsStateWithLifecycle()
+    val weatherError by viewModel.weatherError.collectAsStateWithLifecycle()
+    val syncState by viewModel.syncState.collectAsStateWithLifecycle()
+    val homeAssistantCatalog by viewModel.homeAssistantCatalog.collectAsStateWithLifecycle()
+    val homeAssistantError by viewModel.homeAssistantSetupError.collectAsStateWithLifecycle()
+    val doorbellConnection by viewModel.graph.homeAssistantClient.connectionState.collectAsStateWithLifecycle()
     var showSetup by rememberSaveable { mutableStateOf(false) }
+    var showStatus by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val popupConfigured = doorbellPopupConfigured(settings)
     LaunchedEffect(popupConfigured) {
         if (popupConfigured) TvDoorbellService.start(context)
     }
+    // Re-checked on every lifecycle change so it updates after returning from system settings.
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+    val overlayPermissionGranted = remember(lifecycleState) { Settings.canDrawOverlays(context) }
+    val statusItems = tvStatusItems(
+        TvStatusInput(
+            homeAssistantUrl = settings.homeAssistantUrl,
+            homeAssistantCatalogLoaded = homeAssistantCatalog != null,
+            homeAssistantError = homeAssistantError,
+            googleConfigured = viewModel.graph.googleAuthManager.isConfigured,
+            googleAuthorized = googleAuthorized,
+            calendarSync = syncState,
+            weatherEntityId = settings.weatherEntityId,
+            weatherName = weather?.name,
+            weatherError = weatherError,
+            doorbellConfigured = popupConfigured,
+            overlayAllowed = overlayPermissionGranted,
+            doorbellConnection = doorbellConnection,
+        ),
+        now = Instant.now(),
+        zone = ZoneId.systemDefault(),
+    )
 
-    if (showSetup) {
+    if (showStatus) {
+        BackHandler { showStatus = false }
+        TvStatusScreen(
+            items = statusItems,
+            onCheckAgain = {
+                viewModel.loadHomeAssistantCatalog()
+                viewModel.refreshCalendars()
+            },
+            onOpenOverlaySettings = { openOverlaySettings(context) },
+            onDone = { showStatus = false },
+        )
+    } else if (showSetup) {
         val calendarSources by viewModel.calendarSources.collectAsStateWithLifecycle()
         val calendarListError by viewModel.calendarListError.collectAsStateWithLifecycle()
         val googleDeviceAuthorization by viewModel.googleDeviceAuthorization.collectAsStateWithLifecycle()
         val googleAuthBusy by viewModel.googleAuthBusy.collectAsStateWithLifecycle()
         val googleAuthError by viewModel.googleAuthError.collectAsStateWithLifecycle()
         val discoveredHomeAssistants by viewModel.discoveredHomeAssistants.collectAsStateWithLifecycle()
-        val homeAssistantCatalog by viewModel.homeAssistantCatalog.collectAsStateWithLifecycle()
         val homeAssistantBusy by viewModel.homeAssistantSetupBusy.collectAsStateWithLifecycle()
-        val homeAssistantError by viewModel.homeAssistantSetupError.collectAsStateWithLifecycle()
         val homeAssistantAuthLauncher = rememberLauncherForActivityResult(
             HomeAssistantAuthActivity.Authorize(),
         ) { callback -> callback?.let(viewModel::completeHomeAssistantAuthorization) }
-        // Re-checked on every lifecycle change so it updates after returning from system settings.
-        val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
-        val overlayPermissionGranted = remember(lifecycleState) { Settings.canDrawOverlays(context) }
         BackHandler { showSetup = false }
         TvSetupScreen(
             settings = settings,
@@ -126,16 +166,20 @@ private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
             onSelectDoorbellCamera = viewModel::setDoorbellCamera,
             onOpenOverlaySettings = { openOverlaySettings(context) },
             onTestDoorbellPopup = { TvDoorbellService.showTestPopup(context) },
+            onOpenStatus = { showStatus = true },
             onDone = { showSetup = false },
         )
     } else {
         TvPortalScreen(
             settings = settings,
             events = events,
+            tomorrowEvents = tomorrowEvents,
             googleAuthorized = googleAuthorized,
             weather = weather,
             cameraRepository = viewModel.graph.cameraRepository,
+            statusProblem = statusItems.any { it.level == StatusLevel.PROBLEM },
             onOpenSetup = { showSetup = true },
+            onOpenStatus = { showStatus = true },
         )
     }
 }

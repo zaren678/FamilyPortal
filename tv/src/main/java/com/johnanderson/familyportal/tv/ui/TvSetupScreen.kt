@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Doorbell
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.Refresh
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.Icon
 import androidx.tv.material3.ListItem
+import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Switch
@@ -101,6 +103,7 @@ fun TvSetupScreen(
     onSelectDoorbellCamera: (String) -> Unit,
     onOpenOverlaySettings: () -> Unit,
     onTestDoorbellPopup: () -> Unit,
+    onOpenStatus: () -> Unit,
     onDone: () -> Unit,
 ) {
     var showAddressDialog by remember { mutableStateOf(false) }
@@ -122,6 +125,12 @@ fun TvSetupScreen(
             Text("Settings", style = MaterialTheme.typography.headlineLarge)
             Spacer(Modifier.height(24.dp))
             Button(onClick = onDone) { Text("Done") }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onOpenStatus) {
+                Icon(Icons.Default.MonitorHeart, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Status")
+            }
         }
         LazyColumn(
             modifier = Modifier.weight(0.65f).fillMaxHeight(),

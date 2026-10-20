@@ -92,6 +92,16 @@ class PortalViewModel(
             )
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val tomorrowEvents: StateFlow<List<CalendarEventEntity>> = _today
+        .flatMapLatest { date ->
+            val zone = ZoneId.systemDefault()
+            graph.calendarRepository.events(
+                date.plusDays(1).atStartOfDay(zone).toInstant(),
+                date.plusDays(2).atStartOfDay(zone).toInstant(),
+            )
+        }
+        // Only the TV's evening agenda reads this.
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
         viewModelScope.launch {

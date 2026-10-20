@@ -24,18 +24,21 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.filled.VideocamOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -74,6 +77,7 @@ import com.johnanderson.familyportal.ui.PrewarmCameraStreams
 import com.johnanderson.familyportal.ui.cameraGridColumns
 import com.johnanderson.familyportal.ui.eventBackgroundColor
 import com.johnanderson.familyportal.ui.eventsForDay
+import com.johnanderson.familyportal.ui.nextTimedEvent
 import com.johnanderson.familyportal.ui.weatherConditionIcon
 import java.time.Instant
 import java.time.ZoneId
@@ -89,10 +93,13 @@ import kotlinx.coroutines.delay
 fun TvPortalScreen(
     settings: AppSettings,
     events: List<CalendarEventEntity>,
+    tomorrowEvents: List<CalendarEventEntity>,
     googleAuthorized: Boolean,
     weather: WeatherSnapshot?,
     cameraRepository: CameraRepository,
+    statusProblem: Boolean,
     onOpenSetup: () -> Unit,
+    onOpenStatus: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -109,6 +116,14 @@ fun TvPortalScreen(
     val zone = ZoneId.systemDefault()
     val today = now.atZone(zone).toLocalDate()
     val agenda = remember(events, today) { eventsForDay(events, today, zone) }
+    val tomorrowAgenda = remember(tomorrowEvents, today) { eventsForDay(tomorrowEvents, today.plusDays(1), zone) }
+    val agendaSections = remember(agenda, tomorrowAgenda, now) { tvAgendaSections(agenda, tomorrowAgenda, now) }
+    // Only flag problems that last, so a reconnect at startup doesn't flash a warning.
+    var showStatusWarning by remember { mutableStateOf(false) }
+    LaunchedEffect(statusProblem) {
+        if (statusProblem) delay(STATUS_WARNING_DELAY_MILLIS)
+        showStatusWarning = statusProblem
+    }
     val cameras = remember(settings.cameras) { settings.cameras.sortedByDescending { it.isDoorbell } }
     var fullscreenCameraId by rememberSaveable { mutableStateOf<String?>(null) }
     var lastViewedCameraId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -145,8 +160,12 @@ fun TvPortalScreen(
             now = now,
             zone = zone,
             weather = weather,
+            showStatusWarning = showStatusWarning,
             onOpenSetup = onOpenSetup,
-            settingsInitialFocus = initialFocus.takeIf { !needsSetup && cameras.isEmpty() && agenda.isEmpty() },
+            onOpenStatus = onOpenStatus,
+            settingsInitialFocus = initialFocus.takeIf {
+                !needsSetup && cameras.isEmpty() && agendaSections.all { it.events.isEmpty() }
+            },
         )
         Spacer(Modifier.height(20.dp))
         if (needsSetup) {
@@ -167,8 +186,9 @@ fun TvPortalScreen(
                     modifier = Modifier.weight(1.6f).fillMaxHeight(),
                 )
                 TvAgenda(
-                    events = agenda,
+                    sections = agendaSections,
                     googleAuthorized = googleAuthorized,
+                    now = now,
                     zone = zone,
                     initialFocus = initialFocus.takeIf { cameras.isEmpty() },
                     onEventSelected = { selectedEvent = it },
@@ -183,12 +203,33 @@ fun TvPortalScreen(
 internal fun tvNeedsSetup(settings: AppSettings, googleAuthorized: Boolean): Boolean =
     settings.homeAssistantUrl.isBlank() && !googleAuthorized
 
+internal enum class AgendaDay { TODAY, TOMORROW }
+
+internal data class AgendaSection(val day: AgendaDay, val events: List<CalendarEventEntity>)
+
+/** Today's events, plus tomorrow's once nothing timed is left today. */
+internal fun tvAgendaSections(
+    today: List<CalendarEventEntity>,
+    tomorrow: List<CalendarEventEntity>,
+    now: Instant,
+): List<AgendaSection> = buildList {
+    add(AgendaSection(AgendaDay.TODAY, today))
+    if (nextTimedEvent(today, now) == null && tomorrow.isNotEmpty()) {
+        add(AgendaSection(AgendaDay.TOMORROW, tomorrow))
+    }
+}
+
+internal fun CalendarEventEntity.isPastAt(now: Instant): Boolean =
+    !allDay && endEpochMillis <= now.toEpochMilli()
+
 @Composable
 private fun TvHeader(
     now: Instant,
     zone: ZoneId,
     weather: WeatherSnapshot?,
+    showStatusWarning: Boolean,
     onOpenSetup: () -> Unit,
+    onOpenStatus: () -> Unit,
     settingsInitialFocus: InitialFocus?,
 ) {
     val local = now.atZone(zone)
@@ -203,6 +244,20 @@ private fun TvHeader(
         }
         weather?.let { TvWeatherSummary(it) }
         Spacer(Modifier.width(32.dp))
+        if (showStatusWarning) {
+            OutlinedIconButton(
+                onClick = onOpenStatus,
+                modifier = Modifier.size(OutlinedIconButtonDefaults.LargeButtonSize),
+            ) {
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = "Something needs attention",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(OutlinedIconButtonDefaults.LargeIconSize),
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+        }
         OutlinedIconButton(
             onClick = onOpenSetup,
             modifier = (settingsInitialFocus?.let { Modifier.initialFocus(it) } ?: Modifier)
@@ -363,8 +418,9 @@ private fun TvCameraTile(
 
 @Composable
 private fun TvAgenda(
-    events: List<CalendarEventEntity>,
+    sections: List<AgendaSection>,
     googleAuthorized: Boolean,
+    now: Instant,
     zone: ZoneId,
     initialFocus: InitialFocus?,
     onEventSelected: (CalendarEventEntity) -> Unit,
@@ -372,27 +428,38 @@ private fun TvAgenda(
 ) {
     Surface(modifier = modifier, shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.fillMaxSize().padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Today, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(10.dp))
-                Text("Today", style = MaterialTheme.typography.headlineSmall)
-            }
-            Spacer(Modifier.height(12.dp))
-            if (events.isEmpty()) {
+            if (sections.all { it.events.isEmpty() }) {
+                AgendaHeader(AgendaDay.TODAY)
+                Spacer(Modifier.height(12.dp))
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     EmptyState(
                         icon = if (googleAuthorized) Icons.Default.EventAvailable else Icons.Default.EventBusy,
                         text = if (googleAuthorized) "Nothing today" else "Sign in to Google in Settings",
                     )
                 }
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    itemsIndexed(events, key = { _, event -> "${event.calendarId}/${event.eventId}" }) { index, event ->
+                return@Column
+            }
+            val firstEvent = sections.firstNotNullOfOrNull { it.events.firstOrNull() }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                sections.forEach { section ->
+                    item(key = "header-${section.day}") {
+                        AgendaHeader(
+                            section.day,
+                            Modifier.padding(top = if (section.day == AgendaDay.TODAY) 0.dp else 14.dp, bottom = 2.dp),
+                        )
+                    }
+                    if (section.events.isEmpty()) {
+                        item(key = "empty-${section.day}") {
+                            Text("Nothing today", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    items(section.events, key = { event -> "${section.day}/${event.calendarId}/${event.eventId}" }) { event ->
                         TvAgendaRow(
                             event = event,
                             zone = zone,
+                            past = event.isPastAt(now),
                             onClick = { onEventSelected(event) },
-                            modifier = if (initialFocus != null && index == 0) {
+                            modifier = if (initialFocus != null && event === firstEvent) {
                                 Modifier.initialFocus(initialFocus)
                             } else {
                                 Modifier
@@ -406,13 +473,31 @@ private fun TvAgenda(
 }
 
 @Composable
+private fun AgendaHeader(day: AgendaDay, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            if (day == AgendaDay.TODAY) Icons.Default.Today else Icons.Default.Event,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            if (day == AgendaDay.TODAY) "Today" else "Tomorrow",
+            style = if (day == AgendaDay.TODAY) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
+        )
+    }
+}
+
+@Composable
 private fun TvAgendaRow(
     event: CalendarEventEntity,
     zone: ZoneId,
+    past: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val eventColor = eventBackgroundColor(event.color)
+    // Finished events fade back, matching the Portal's Today screen.
+    val eventColor = eventBackgroundColor(event.color).let { if (past) it.copy(alpha = 0.58f) else it }
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
@@ -504,6 +589,7 @@ private fun CalendarEventEntity.tvTimeLabel(zone: ZoneId): String {
 private val TV_OVERSCAN_HORIZONTAL = 48.dp
 private val TV_OVERSCAN_VERTICAL = 27.dp
 private const val CLOCK_REFRESH_MILLIS = 30_000L
+private const val STATUS_WARNING_DELAY_MILLIS = 10_000L
 private val TV_DAY_DATE = DateTimeFormatter.ofPattern("EEEE, MMMM d")
 private val TV_CLOCK_TIME = DateTimeFormatter.ofPattern("h:mm a")
 private val TV_EVENT_TIME = DateTimeFormatter.ofPattern("h:mm a")
