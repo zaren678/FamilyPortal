@@ -25,8 +25,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.johnanderson.familyportal.core.CameraConfig
 import com.johnanderson.familyportal.ha.HomeAssistantCameraChoice
 import com.johnanderson.familyportal.ha.HomeAssistantEntityChoice
+import com.johnanderson.familyportal.ha.configuredFor
 
 @Composable
 internal fun HomeAssistantEntityPickerDialog(
@@ -91,7 +93,7 @@ internal fun HomeAssistantEntityPickerDialog(
 @Composable
 internal fun HomeAssistantCameraPickerDialog(
     cameras: List<HomeAssistantCameraChoice>,
-    configuredEntityIds: Set<String>,
+    configuredCameras: List<CameraConfig>,
     firstCameraIsDoorbell: Boolean,
     onDismiss: () -> Unit,
     onAdd: (HomeAssistantCameraChoice, Boolean) -> Unit,
@@ -119,7 +121,7 @@ internal fun HomeAssistantCameraPickerDialog(
                 } else {
                     LazyColumn(Modifier.heightIn(max = 420.dp)) {
                         items(filtered, key = { it.main.entityId }) { camera ->
-                            val added = camera.main.entityId in configuredEntityIds ||
+                            val added = configuredCameras.configuredFor(camera) != null ||
                                 camera.main.entityId in addedEntityIds
                             Row(
                                 Modifier.fillMaxWidth().padding(vertical = 6.dp),

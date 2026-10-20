@@ -11,6 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,7 +41,8 @@ data class DiscoveredHomeAssistant(
 @Suppress("DEPRECATION")
 class HomeAssistantDiscovery(context: Context) {
     private val nsdManager = context.getSystemService(NsdManager::class.java)
-    private val wifiManager = context.applicationContext.getSystemService(WifiManager::class.java)
+    // Null on devices without Wi-Fi hardware, such as Ethernet-only TV boxes.
+    private val wifiManager: WifiManager? = context.applicationContext.getSystemService(WifiManager::class.java)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val services = ConcurrentHashMap<String, DiscoveredHomeAssistant>()
     private val resolving = ConcurrentHashMap.newKeySet<String>()
@@ -49,14 +51,15 @@ class HomeAssistantDiscovery(context: Context) {
     private var listener: NsdManager.DiscoveryListener? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private var fallbackJob: Job? = null
+    private var jmDnsJob: Job? = null
     private var jmDns: JmDNS? = null
 
     @Synchronized
     fun start() {
-        if (listener != null || jmDns != null) return
+        if (listener != null || jmDns != null || jmDnsJob?.isActive == true) return
         services.clear()
         publish()
-        multicastLock = wifiManager.createMulticastLock("FamilyPortal:ha-discovery").apply {
+        multicastLock = wifiManager?.createMulticastLock("FamilyPortal:ha-discovery")?.apply {
             setReferenceCounted(false)
             acquire()
         }
@@ -90,12 +93,14 @@ class HomeAssistantDiscovery(context: Context) {
     fun stop() {
         fallbackJob?.cancel()
         fallbackJob = null
+        jmDnsJob?.cancel()
+        jmDnsJob = null
         listener?.let { runCatching { nsdManager.stopServiceDiscovery(it) } }
         listener = null
-        scope.launch {
-            runCatching { jmDns?.close() }
-            jmDns = null
-        }
+        // Clear the reference now so an immediate start() isn't skipped; close it in the background.
+        val closing = jmDns
+        jmDns = null
+        if (closing != null) scope.launch { runCatching { closing.close() } }
         multicastLock?.let { if (it.isHeld) it.release() }
         multicastLock = null
         resolving.clear()
@@ -136,14 +141,21 @@ class HomeAssistantDiscovery(context: Context) {
 
     @Synchronized
     private fun startJmDnsFallback() {
-        if (jmDns != null) return
-        scope.launch {
+        if (jmDns != null || jmDnsJob?.isActive == true) return
+        jmDnsJob = scope.launch {
             val address = wifiIpv4Address() ?: run { Log.e(TAG, "No LAN IPv4 address for mDNS"); return@launch }
             Log.i(TAG, "Starting JmDNS on " + address)
             val instance = runCatching { JmDNS.create(address, "FamilyPortal") }
                 .onFailure { Log.e(TAG, "Unable to start JmDNS", it) }
                 .getOrNull() ?: return@launch
-            jmDns = instance
+            val stillWanted = synchronized(this@HomeAssistantDiscovery) {
+                if (isActive) jmDns = instance
+                isActive
+            }
+            if (!stillWanted) {
+                runCatching { instance.close() }
+                return@launch
+            }
             instance.addServiceListener(JMDNS_SERVICE_TYPE, object : ServiceListener {
                 override fun serviceAdded(event: ServiceEvent) {
                     Log.i(TAG, "JmDNS found " + event.name)

@@ -1,5 +1,7 @@
 package com.johnanderson.familyportal.ha
 
+import com.johnanderson.familyportal.core.CameraConfig
+import com.johnanderson.familyportal.core.entityIds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -18,6 +20,12 @@ data class HomeAssistantCameraChoice(
     val main: HomeAssistantEntityChoice,
     val preview: HomeAssistantEntityChoice?,
 )
+
+/** The configured camera that already uses this Home Assistant camera's main or preview stream. */
+fun List<CameraConfig>.configuredFor(choice: HomeAssistantCameraChoice): CameraConfig? {
+    val choiceEntityIds = setOfNotNull(choice.main.entityId, choice.preview?.entityId)
+    return firstOrNull { camera -> camera.entityIds().any(choiceEntityIds::contains) }
+}
 
 fun HomeAssistantEntityChoice.isLikelyCameraSubstream(): Boolean {
     val searchable = "$name ${entityId.substringAfter('.')}".lowercase()

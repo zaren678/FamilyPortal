@@ -4,6 +4,7 @@ import android.util.Log
 import com.johnanderson.familyportal.camera.CameraRepository
 import com.johnanderson.familyportal.core.AppSettings
 import com.johnanderson.familyportal.core.SettingsRepository
+import com.johnanderson.familyportal.core.previewStream
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -80,9 +81,7 @@ class DoorbellMonitor(
             val doorbell = settings.cameras.firstOrNull { it.isDoorbell }
                 ?: return@collectLatest
             if (settings.homeAssistantUrl.isBlank()) return@collectLatest
-            val alertCamera = doorbell.copy(
-                entityId = doorbell.previewEntityId.ifBlank { doorbell.entityId },
-            )
+            val alertCamera = doorbell.previewStream()
             while (true) {
                 cameraRepository.prewarmHomeAssistantStream(
                     settings.homeAssistantUrl,

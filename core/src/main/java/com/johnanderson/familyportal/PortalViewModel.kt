@@ -10,6 +10,7 @@ import com.johnanderson.familyportal.calendar.GoogleDeviceAuthorization
 import com.johnanderson.familyportal.core.AppSettings
 import com.johnanderson.familyportal.core.CameraConfig
 import com.johnanderson.familyportal.core.PortalTab
+import com.johnanderson.familyportal.core.entityIds
 import com.johnanderson.familyportal.ha.DiscoveredHomeAssistant
 import com.johnanderson.familyportal.ha.HomeAssistantCameraChoice
 import com.johnanderson.familyportal.ha.HomeAssistantCatalog
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -38,10 +40,11 @@ class PortalViewModel(
     val graph: AppGraph,
 ) : ViewModel() {
     val appState = graph.coordinator.state
-    val settings: StateFlow<AppSettings> = graph.settingsRepository.settings.stateIn(
+    /** Null until settings have been read from disk, so screens can tell "loading" from "not set up". */
+    val settings: StateFlow<AppSettings?> = graph.settingsRepository.settings.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
-        AppSettings(),
+        null,
     )
     val calendarSources: StateFlow<List<CalendarSourceEntity>> =
         graph.calendarRepository.sources.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -54,6 +57,8 @@ class PortalViewModel(
     val googleAuthBusy: StateFlow<Boolean> = _googleAuthBusy.asStateFlow()
     private val _googleAuthError = MutableStateFlow<String?>(null)
     val googleAuthError: StateFlow<String?> = _googleAuthError.asStateFlow()
+    private val _calendarListError = MutableStateFlow<String?>(null)
+    val calendarListError: StateFlow<String?> = _calendarListError.asStateFlow()
     val discoveredHomeAssistants: StateFlow<List<DiscoveredHomeAssistant>> = graph.homeAssistantDiscovery.discovered
     private val _homeAssistantCatalog = MutableStateFlow<HomeAssistantCatalog?>(null)
     val homeAssistantCatalog: StateFlow<HomeAssistantCatalog?> = _homeAssistantCatalog.asStateFlow()
@@ -75,7 +80,8 @@ class PortalViewModel(
             val end = date.plusDays(14).atStartOfDay(zone).toInstant()
             graph.calendarRepository.events(start, end)
         }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        // Only the Portal's week view reads this; don't query when nothing is watching.
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _today = MutableStateFlow(LocalDate.now())
     val todayEvents: StateFlow<List<CalendarEventEntity>> = _today
         .flatMapLatest { date ->
@@ -95,7 +101,7 @@ class PortalViewModel(
             }
         }
         viewModelScope.launch {
-            settings.collect { value ->
+            settings.filterNotNull().collect { value ->
                 if (value.homeAssistantUrl.isNotBlank() && _homeAssistantCatalog.value == null) {
                     loadHomeAssistantCatalog(value.homeAssistantUrl)
                 }
@@ -118,6 +124,7 @@ class PortalViewModel(
         }
         viewModelScope.launch {
             settings
+                .filterNotNull()
                 .map { Triple(it.homeAssistantUrl, it.homeAssistantRevision, it.weatherEntityId) }
                 .distinctUntilChanged()
                 .collectLatest { (baseUrl, _, entityId) ->
@@ -148,7 +155,9 @@ class PortalViewModel(
 
     fun refreshCalendars() = viewModelScope.launch { graph.calendarRepository.syncNow() }
     fun refreshCalendarList() = viewModelScope.launch {
+        _calendarListError.value = null
         runCatching { graph.calendarRepository.refreshCalendarList() }
+            .onFailure { _calendarListError.value = it.message ?: "Couldn't load your calendars" }
     }
     fun selectCalendar(id: String, selected: Boolean) = viewModelScope.launch {
         graph.calendarRepository.setCalendarSelected(id, selected)
@@ -174,9 +183,13 @@ class PortalViewModel(
 
     fun signOutGoogle() {
         graph.googleAuthManager.signOut()
+        // Don't leave the previous account's agenda on screen or its calendars selected.
+        viewModelScope.launch { graph.calendarRepository.clear() }
     }
 
     fun startHomeAssistantDiscovery() = graph.homeAssistantDiscovery.start()
+
+    fun stopHomeAssistantDiscovery() = graph.homeAssistantDiscovery.stop()
 
     fun authorizeHomeAssistant(baseUrl: String): android.net.Uri =
         graph.homeAssistantAuthManager.authorizationUri(normalizeHomeAssistantUrl(baseUrl))
@@ -195,7 +208,7 @@ class PortalViewModel(
         _homeAssistantSetupBusy.value = false
     }
 
-    fun loadHomeAssistantCatalog(baseUrl: String = settings.value.homeAssistantUrl) = viewModelScope.launch {
+    fun loadHomeAssistantCatalog(baseUrl: String = settings.value?.homeAssistantUrl.orEmpty()) = viewModelScope.launch {
         if (baseUrl.isBlank()) return@launch
         _homeAssistantSetupBusy.value = true
         _homeAssistantSetupError.value = null
@@ -280,15 +293,8 @@ class PortalViewModel(
                     hasAudio = hasAudio,
                     isDoorbell = doorbell,
                 )
-                val updatedEntityIds = setOf(updated.entityId, updated.previewEntityId)
-                    .filter(String::isNotBlank)
-                    .toSet()
-                if (existingId == null && current.cameras.any { camera ->
-                        setOf(camera.entityId, camera.previewEntityId)
-                            .filter(String::isNotBlank)
-                            .any(updatedEntityIds::contains)
-                    }
-                ) {
+                val updatedEntityIds = updated.entityIds()
+                if (existingId == null && current.cameras.any { it.entityIds().any(updatedEntityIds::contains) }) {
                     return@update current
                 }
                 val normalized = current.cameras.map { camera ->
@@ -307,6 +313,12 @@ class PortalViewModel(
         graph.secureStore.remove(com.johnanderson.familyportal.core.SecureStore.rtspKey(cameraId))
         graph.settingsRepository.update { current ->
             current.copy(cameras = current.cameras.filterNot { it.id == cameraId })
+        }
+    }
+
+    fun setCameraAudio(cameraId: String, hasAudio: Boolean) = viewModelScope.launch {
+        graph.settingsRepository.update { current ->
+            current.copy(cameras = current.cameras.map { if (it.id == cameraId) it.copy(hasAudio = hasAudio) else it })
         }
     }
 

@@ -122,7 +122,9 @@ class GoogleAuthManager(
                     val token = TokenResponse.Builder(tokenRequest)
                         .fromResponseJsonString(result.body)
                         .build()
-                    authState.update(token, null)
+                    // Start clean: a leftover browser-flow authorization would otherwise
+                    // route refreshes through AppAuth with the wrong client ID.
+                    authState = AuthState(serviceConfiguration).apply { update(token, null) }
                     persist()
                     _authorized.value = authState.isAuthorized
                     return

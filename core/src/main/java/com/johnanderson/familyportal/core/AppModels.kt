@@ -33,6 +33,12 @@ data class CameraConfig(
     val isDoorbell: Boolean = false,
 )
 
+/** The same camera addressed by its lower-resolution preview stream, when it has one. */
+fun CameraConfig.previewStream(): CameraConfig = copy(entityId = previewEntityId.ifBlank { entityId })
+
+/** The Home Assistant camera entities this camera streams from. */
+fun CameraConfig.entityIds(): Set<String> = setOf(entityId, previewEntityId).filterTo(mutableSetOf(), String::isNotBlank)
+
 @Serializable
 data class AppSettings(
     val homeAssistantUrl: String = "",

@@ -1,5 +1,6 @@
 package com.johnanderson.familyportal.ui
 
+import android.content.Context
 import android.util.Log
 import android.view.ViewGroup
 import androidx.compose.foundation.background
@@ -36,6 +37,7 @@ import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import com.johnanderson.familyportal.camera.CameraRepository
 import com.johnanderson.familyportal.core.CameraConfig
+import com.johnanderson.familyportal.core.previewStream
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -60,14 +62,8 @@ fun PrewarmCameraStreams(
         while (true) {
             coroutineScope {
                 cameras.forEach { camera ->
-                    val previewCamera = camera.copy(
-                        entityId = camera.previewEntityId.ifBlank { camera.entityId },
-                    )
                     launch {
-                        repository.prewarmHomeAssistantStream(
-                            homeAssistantUrl,
-                            previewCamera,
-                        )
+                        repository.prewarmHomeAssistantStream(homeAssistantUrl, camera.previewStream())
                     }
                 }
             }
@@ -87,9 +83,7 @@ fun LiveCameraPreview(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val gridCamera = remember(camera) {
-        camera.copy(entityId = camera.previewEntityId.ifBlank { camera.entityId })
-    }
+    val gridCamera = remember(camera) { camera.previewStream() }
     var streamUri by remember(gridCamera.entityId, active) { mutableStateOf<String?>(null) }
     var attempt by remember(gridCamera.entityId, active) { mutableStateOf(0) }
     var ready by remember(gridCamera.entityId, active) { mutableStateOf(false) }
@@ -111,14 +105,7 @@ fun LiveCameraPreview(
             }
     }
     val player = remember(gridCamera.entityId, streamUri, active) {
-        if (!active) null else streamUri?.let { uri ->
-            ExoPlayer.Builder(context).build().apply {
-                volume = 0f
-                setMediaItem(MediaItem.fromUri(uri))
-                playWhenReady = true
-                prepare()
-            }
-        }
+        if (!active) null else streamUri?.let { uri -> mutedCameraPlayer(context, uri) }
     }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -153,20 +140,7 @@ fun LiveCameraPreview(
         contentAlignment = Alignment.Center,
     ) {
         if (player != null) {
-            AndroidView(
-                factory = {
-                    PlayerView(it).apply {
-                        this.player = player
-                        useController = false
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                    }
-                },
-                update = { it.player = player },
-                modifier = Modifier.fillMaxSize(),
-            )
+            PlayerSurface(player, Modifier.fillMaxSize())
         }
         if (!ready) CircularProgressIndicator()
     }
@@ -187,9 +161,7 @@ fun FullScreenCameraVideo(
     overlay: @Composable BoxScope.(audioAvailable: Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
-    val previewCamera = remember(camera) {
-        camera.copy(entityId = camera.previewEntityId.ifBlank { camera.entityId })
-    }
+    val previewCamera = remember(camera) { camera.previewStream() }
     var streamUri by remember(camera.id, previewCamera.entityId, homeAssistantUrl) { mutableStateOf<String?>(null) }
     var streamAttempt by remember(camera.id, previewCamera.entityId, homeAssistantUrl) { mutableStateOf(0) }
     var playbackReady by remember(camera.id, previewCamera.entityId, homeAssistantUrl) { mutableStateOf(false) }
@@ -223,17 +195,7 @@ fun FullScreenCameraVideo(
             }
     }
     val player = remember(camera.id, previewCamera.entityId, streamUri) {
-        streamUri?.let { uri ->
-            ExoPlayer.Builder(context)
-                .setAudioAttributes(CAMERA_AUDIO_ATTRIBUTES, false)
-                .build()
-                .apply {
-                    volume = 0f
-                    setMediaItem(MediaItem.fromUri(uri))
-                    playWhenReady = true
-                    prepare()
-                }
-        }
+        streamUri?.let { uri -> mutedCameraPlayer(context, uri) }
     }
     var qualityStreamUri by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf<String?>(null) }
     var qualityAttempt by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf(0) }
@@ -268,17 +230,7 @@ fun FullScreenCameraVideo(
         }
     }
     val qualityPlayer = remember(camera.id, camera.entityId, qualityStreamUri, qualityAttempt) {
-        qualityStreamUri?.let { uri ->
-            ExoPlayer.Builder(context)
-                .setAudioAttributes(CAMERA_AUDIO_ATTRIBUTES, false)
-                .build()
-                .apply {
-                    volume = 0f
-                    setMediaItem(MediaItem.fromUri(uri))
-                    playWhenReady = true
-                    prepare()
-                }
-        }
+        qualityStreamUri?.let { uri -> mutedCameraPlayer(context, uri) }
     }
     LaunchedEffect(player, qualityPlayer, qualityReady, previewIsQuality, audioEnabled, camera.hasAudio) {
         val previewAudio = audioEnabled && camera.hasAudio && previewIsQuality
@@ -347,36 +299,10 @@ fun FullScreenCameraVideo(
     }
     Box(modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
         if (qualityPlayer != null) {
-            AndroidView(
-                factory = {
-                    PlayerView(it).apply {
-                        this.player = qualityPlayer
-                        useController = false
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                    }
-                },
-                update = { it.player = qualityPlayer },
-                modifier = Modifier.fillMaxSize(),
-            )
+            PlayerSurface(qualityPlayer, Modifier.fillMaxSize())
         }
         if (!qualityReady && !playbackFailed && player != null) {
-            AndroidView(
-                factory = {
-                    PlayerView(it).apply {
-                        this.player = player
-                        useController = false
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                    }
-                },
-                update = { it.player = player },
-                modifier = Modifier.fillMaxSize(),
-            )
+            PlayerSurface(player, Modifier.fillMaxSize())
         } else if (!qualityReady && playbackFailed) {
             fallbackSnapshot?.let {
                 AsyncImage(
@@ -406,6 +332,36 @@ fun FullScreenCameraVideo(
             (player != null || qualityPlayer != null) && camera.hasAudio
         overlay(audioAvailable)
     }
+}
+
+/** Starts playing [uri] muted; callers raise the volume when audio is wanted. */
+private fun mutedCameraPlayer(context: Context, uri: String): ExoPlayer =
+    ExoPlayer.Builder(context)
+        .setAudioAttributes(CAMERA_AUDIO_ATTRIBUTES, false)
+        .build()
+        .apply {
+            volume = 0f
+            setMediaItem(MediaItem.fromUri(uri))
+            playWhenReady = true
+            prepare()
+        }
+
+@Composable
+private fun PlayerSurface(player: ExoPlayer, modifier: Modifier = Modifier) {
+    AndroidView(
+        factory = {
+            PlayerView(it).apply {
+                this.player = player
+                useController = false
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                )
+            }
+        },
+        update = { it.player = player },
+        modifier = modifier,
+    )
 }
 
 private val CAMERA_AUDIO_ATTRIBUTES = AudioAttributes.Builder()

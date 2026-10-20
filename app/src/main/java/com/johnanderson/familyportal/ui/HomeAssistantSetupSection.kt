@@ -20,7 +20,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +45,7 @@ fun HomeAssistantSetupSection(
     busy: Boolean,
     error: String?,
     onStartDiscovery: () -> Unit,
+    onStopDiscovery: () -> Unit,
     onAuthorize: (String) -> Unit,
     onRefreshEntities: () -> Unit,
     onSelectSensor: (String) -> Unit,
@@ -62,13 +63,21 @@ fun HomeAssistantSetupSection(
         mutableStateOf(settings.doorbellSensorEntityId)
     }
     val logicalCameras = remember(catalog) { catalog?.logicalCameras().orEmpty() }
-    LaunchedEffect(Unit) { onStartDiscovery() }
+    DisposableEffect(Unit) {
+        onStartDiscovery()
+        onDispose { onStopDiscovery() }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Home Assistant", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             if (busy) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
-            IconButton(onClick = onStartDiscovery) { Icon(Icons.Default.Refresh, "Discover again") }
+            IconButton(
+                onClick = {
+                    onStopDiscovery()
+                    onStartDiscovery()
+                },
+            ) { Icon(Icons.Default.Refresh, "Discover again") }
         }
         if (discovered.isEmpty() && settings.homeAssistantUrl.isBlank()) {
             Text("Searching your network for Home Assistant…")
@@ -205,9 +214,7 @@ fun HomeAssistantSetupSection(
     if (showCameraPicker && catalog != null) {
         HomeAssistantCameraPickerDialog(
             cameras = logicalCameras,
-            configuredEntityIds = settings.cameras.flatMap { camera ->
-                listOf(camera.entityId, camera.previewEntityId)
-            }.filter(String::isNotBlank).toSet(),
+            configuredCameras = settings.cameras,
             firstCameraIsDoorbell = settings.cameras.none { it.isDoorbell },
             onDismiss = { showCameraPicker = false },
             onAdd = onAddCamera,

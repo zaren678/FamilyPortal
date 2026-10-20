@@ -49,7 +49,7 @@ Connect the Portal and inspect compatibility before installation:
 ./scripts/inspect_portal.sh
 ```
 
-The required baseline is Android API 26 with an H.264 decoder and a browser that can return an AppAuth custom-scheme redirect. Configure Lorex substreams at roughly 720p and 10–15 FPS.
+The required baseline is Android API 26 with an H.264 decoder. Configure Lorex substreams at roughly 720p and 10–15 FPS.
 
 Install and make Family Portal the default HOME app:
 

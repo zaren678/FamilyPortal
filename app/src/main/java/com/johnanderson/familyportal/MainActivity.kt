@@ -199,10 +199,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
     val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsState()
     val appResumed = lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
     val appState by viewModel.appState.collectAsStateWithLifecycle()
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val displayCameras = remember(settings.cameras) {
-        settings.cameras.sortedByDescending { it.isDoorbell }
-    }
+    val loadedSettings by viewModel.settings.collectAsStateWithLifecycle()
     val sources by viewModel.calendarSources.collectAsStateWithLifecycle()
     val events by viewModel.calendarEvents.collectAsStateWithLifecycle()
     val todayEvents by viewModel.todayEvents.collectAsStateWithLifecycle()
@@ -238,6 +235,14 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
     val doorbellVisible = appState.overlay is PortalOverlay.Doorbell
     LaunchedEffect(doorbellVisible) {
         (activity as MainActivity).applyDoorbellWakeLock(doorbellVisible)
+    }
+    // Draw only the background until settings load, so empty states don't flash at startup.
+    val settings = loadedSettings ?: run {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+        return
+    }
+    val displayCameras = remember(settings.cameras) {
+        settings.cameras.sortedByDescending { it.isDoorbell }
     }
     val selectedTabIndex = when (route?.destination?.route) {
         ROUTE_CALENDAR -> 1
@@ -396,6 +401,7 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                         onRefreshCalendars = viewModel::refreshCalendarList,
                         onCalendarSelected = viewModel::selectCalendar,
                         onStartHomeAssistantDiscovery = viewModel::startHomeAssistantDiscovery,
+                        onStopHomeAssistantDiscovery = viewModel::stopHomeAssistantDiscovery,
                         onAuthorizeHomeAssistant = { baseUrl ->
                             homeAssistantAuthLauncher.launch(viewModel.authorizeHomeAssistant(baseUrl))
                         },

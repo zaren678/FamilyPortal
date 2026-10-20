@@ -70,6 +70,18 @@ abstract class CalendarDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertEvents(events: List<CalendarEventEntity>)
 
+    @Query("DELETE FROM calendar_sources")
+    abstract suspend fun deleteSources()
+
+    @Query("DELETE FROM calendar_events")
+    abstract suspend fun deleteEvents()
+
+    @Transaction
+    open suspend fun clearAll() {
+        deleteEvents()
+        deleteSources()
+    }
+
     @Transaction
     open suspend fun replaceWindow(
         calendarId: String,

@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -48,6 +49,12 @@ class CalendarRepository(
             )
         }
         dao.upsertSources(sources)
+    }
+
+    /** Forgets every calendar and event, waiting for any sync in progress so it can't write them back. */
+    suspend fun clear() = syncMutex.withLock {
+        withContext(Dispatchers.IO) { dao.clearAll() }
+        _syncState.value = CalendarSyncState()
     }
 
     suspend fun syncNow(now: Instant = Instant.now()): Result<Unit> {
