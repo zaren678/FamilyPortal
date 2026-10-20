@@ -3,9 +3,15 @@ package com.johnanderson.familyportal.tv.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -100,32 +106,43 @@ fun TvCameraViewer(
                         color = Color.White,
                         style = MaterialTheme.typography.headlineMedium,
                     )
-                    Text(
-                        viewerHint(
-                            canSwitch = cameras.size > 1,
-                            audioAvailable = hasAudio,
-                            muted = muted,
-                        ),
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(36.dp)
-                            .background(Color.Black.copy(alpha = 0.6f))
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
+                    val hints = viewerHints(canSwitch = cameras.size > 1, audioAvailable = hasAudio)
+                    if (hints.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(36.dp)
+                                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(28.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            hints.forEach { hint ->
+                                when (hint) {
+                                    ViewerHint.SWITCH_CAMERA -> RemoteHint(key = "◀ ▶", label = "Cameras")
+                                    ViewerHint.TOGGLE_AUDIO -> RemoteHint(
+                                        key = "OK",
+                                        icon = if (muted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                                        iconDescription = if (muted) "Muted" else "Sound on",
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-internal fun viewerHint(canSwitch: Boolean, audioAvailable: Boolean, muted: Boolean): String =
+internal enum class ViewerHint { SWITCH_CAMERA, TOGGLE_AUDIO }
+
+/** Remote hints worth showing; Back is left out since it always returns. */
+internal fun viewerHints(canSwitch: Boolean, audioAvailable: Boolean): List<ViewerHint> =
     listOfNotNull(
-        "◀ ▶ Switch camera".takeIf { canSwitch },
-        (if (muted) "OK Unmute" else "OK Mute").takeIf { audioAvailable },
-        "Back Return",
-    ).joinToString("   ·   ")
+        ViewerHint.SWITCH_CAMERA.takeIf { canSwitch },
+        ViewerHint.TOGGLE_AUDIO.takeIf { audioAvailable },
+    )
 
 /** Live video is watched deliberately, so only the full-screen view blocks the TV's screensaver. */
 @Composable

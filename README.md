@@ -92,7 +92,7 @@ In Settings, under **Doorbell popup**, choose the person sensor and the doorbell
 
 When the sensor turns on while the TV is in use, a muted live view of the doorbell camera appears in the top-right corner over whatever is playing. While it's showing, **OK** opens the camera full screen and **Back** dismisses it; Back from full screen returns to what you were watching. The show keeps playing behind the popup, but other buttons do nothing until it closes. It closes on its own after the sensor clears plus the alert duration (30 seconds by default), or after 4 minutes, and is skipped when the TV is off.
 
-**Show a test popup** in Settings displays it for 15 seconds. Debug builds can also trigger one over any app:
+**Test popup** in Settings shows it for 15 seconds. Debug builds can also trigger one over any app:
 
 ```bash
 adb shell am broadcast -a com.johnanderson.familyportal.tv.DEBUG_DOORBELL -p com.johnanderson.familyportal.tv

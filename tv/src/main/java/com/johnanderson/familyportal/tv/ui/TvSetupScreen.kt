@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -16,7 +18,24 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Doorbell
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.PictureInPicture
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,11 +45,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
+import androidx.tv.material3.Icon
 import androidx.tv.material3.ListItem
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
@@ -98,13 +120,6 @@ fun TvSetupScreen(
     Row(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 27.dp)) {
         Column(Modifier.weight(0.35f).fillMaxHeight().padding(end = 32.dp)) {
             Text("Settings", style = MaterialTheme.typography.headlineLarge)
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "This TV keeps its own settings. Sign-ins are approved on your phone, " +
-                    "and changes here don't affect the Portal.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Spacer(Modifier.height(24.dp))
             Button(onClick = onDone) { Text("Done") }
         }
@@ -112,7 +127,7 @@ fun TvSetupScreen(
             modifier = Modifier.weight(0.65f).fillMaxHeight(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            sectionHeader("Google Calendar")
+            sectionHeader("Google Calendar", Icons.Default.CalendarMonth)
             when {
                 !googleConfigured -> message(
                     "Set GOOGLE_DEVICE_OAUTH_CLIENT_ID and GOOGLE_DEVICE_OAUTH_CLIENT_SECRET " +
@@ -127,21 +142,23 @@ fun TvSetupScreen(
                         onClick = onGoogleSignIn,
                         enabled = !googleAuthBusy,
                         modifier = Modifier.initialFocus(initialFocus),
+                        leadingContent = { Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null) },
                         headlineContent = { Text("Sign in with Google") },
-                        supportingContent = { Text("You'll get a code to enter on your phone") },
+                        supportingContent = { Text("Enter a code on your phone") },
                     )
                 }
                 else -> {
                     if (calendarSources.isEmpty()) {
                         if (calendarListError == null) {
-                            message("Loading your calendars…")
+                            message("Loading calendars…")
                         } else {
-                            errorMessage("Couldn't load your calendars: $calendarListError")
+                            errorMessage("Couldn't load calendars: $calendarListError")
                             item(key = "calendars-retry") {
                                 ListItem(
                                     selected = false,
                                     onClick = onRefreshCalendars,
                                     modifier = Modifier.initialFocus(initialFocus),
+                                    leadingContent = { Icon(Icons.Default.Refresh, contentDescription = null) },
                                     headlineContent = { Text("Try again") },
                                 )
                             }
@@ -165,18 +182,19 @@ fun TvSetupScreen(
                         ListItem(
                             selected = false,
                             onClick = onGoogleSignOut,
-                            headlineContent = { Text("Sign out of Google") },
+                            leadingContent = { Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null) },
+                            headlineContent = { Text("Sign out") },
                         )
                     }
                 }
             }
             googleAuthError?.takeIf { !googleAuthorized }?.let { errorMessage(it) }
 
-            sectionHeader("Home Assistant")
+            sectionHeader("Home Assistant", Icons.Default.Home)
             val connected = settings.homeAssistantUrl.isNotBlank() && homeAssistantCatalog != null
-            if (connected) message("Connected to ${settings.homeAssistantUrl}")
+            if (connected) message(settings.homeAssistantUrl, icon = Icons.Default.CheckCircle)
             val servers = discoveredHomeAssistants.distinctBy { it.url }.filterNot { connected && it.url == settings.homeAssistantUrl }
-            if (servers.isEmpty() && !connected) message("Searching your network for Home Assistant…")
+            if (servers.isEmpty() && !connected) message("Searching your network…")
             items(servers, key = { server -> "ha-${server.url}" }) { server ->
                 ListItem(
                     selected = false,
@@ -186,7 +204,7 @@ fun TvSetupScreen(
                     supportingContent = {
                         Text(listOfNotNull(server.url, server.version?.let { "Home Assistant $it" }).joinToString(" · "))
                     },
-                    trailingContent = { Text("Connect") },
+                    trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = "Connect") },
                 )
             }
             item(key = "ha-search-again") {
@@ -197,6 +215,7 @@ fun TvSetupScreen(
                         onStartDiscovery()
                     },
                     enabled = !homeAssistantBusy,
+                    leadingContent = { Icon(Icons.Default.Refresh, contentDescription = null) },
                     headlineContent = { Text("Search again") },
                 )
             }
@@ -205,14 +224,15 @@ fun TvSetupScreen(
                     selected = false,
                     onClick = { showAddressDialog = true },
                     enabled = !homeAssistantBusy,
-                    headlineContent = { Text("Enter address manually") },
+                    leadingContent = { Icon(Icons.Default.Keyboard, contentDescription = null) },
+                    headlineContent = { Text("Enter address") },
                 )
             }
-            if (homeAssistantBusy) message("Working…")
+            if (homeAssistantBusy) message("Connecting…")
             homeAssistantError?.let { errorMessage(it) }
 
             homeAssistantCatalog?.let { catalog ->
-                sectionHeader("Cameras")
+                sectionHeader("Cameras", Icons.Default.Videocam)
                 if (logicalCameras.isEmpty()) message("No cameras found in Home Assistant")
                 items(logicalCameras, key = { choice -> "camera-${choice.main.entityId}" }) { choice ->
                     val configured = settings.cameras.configuredFor(choice)
@@ -222,31 +242,28 @@ fun TvSetupScreen(
                             if (configured != null) onRemoveCamera(configured.id) else onAddCamera(choice)
                         },
                         headlineContent = { Text(choice.main.name) },
-                        supportingContent = { Text(choice.main.entityId) },
                         trailingContent = { Switch(checked = configured != null, onCheckedChange = null) },
                     )
                 }
                 if (settings.cameras.isNotEmpty()) {
-                    subheader("Audio")
+                    subheader("Sound in full screen", Icons.AutoMirrored.Filled.VolumeUp)
                     items(settings.cameras, key = { camera -> "audio-${camera.id}" }) { camera ->
                         ListItem(
                             selected = false,
                             onClick = { onSetCameraAudio(camera.id, !camera.hasAudio) },
                             headlineContent = { Text(camera.name) },
-                            supportingContent = { Text("Allow unmuting in full screen") },
                             trailingContent = { Switch(checked = camera.hasAudio, onCheckedChange = null) },
                         )
                     }
                 }
 
                 if (catalog.weather.isNotEmpty()) {
-                    sectionHeader("Weather")
+                    sectionHeader("Weather", Icons.Default.WbSunny)
                     items(catalog.weather, key = { entity -> "weather-${entity.entityId}" }) { entity ->
                         ListItem(
                             selected = entity.entityId == settings.weatherEntityId,
                             onClick = { onSelectWeather(entity.entityId) },
                             headlineContent = { Text(entity.name) },
-                            supportingContent = { Text(entity.entityId) },
                         )
                     }
                 }
@@ -285,13 +302,14 @@ private fun LazyListScope.doorbellPopupSection(
     onOpenOverlaySettings: () -> Unit,
     onTestDoorbellPopup: () -> Unit,
 ) {
-    sectionHeader("Doorbell popup")
-    message("When someone's at the door, show the doorbell camera in a corner over whatever is playing.")
-    subheader("Trigger")
+    sectionHeader("Doorbell popup", Icons.Default.Doorbell)
+    message("Shows the doorbell camera over whatever's playing.")
+    subheader("Sensor")
     item(key = "doorbell-off") {
         ListItem(
             selected = settings.doorbellSensorEntityId.isBlank(),
             onClick = { onSelectDoorbellSensor("") },
+            leadingContent = { Icon(Icons.Default.NotificationsOff, contentDescription = null) },
             headlineContent = { Text("Off") },
         )
     }
@@ -307,7 +325,7 @@ private fun LazyListScope.doorbellPopupSection(
     if (settings.doorbellSensorEntityId.isBlank()) return
 
     subheader("Camera")
-    if (settings.cameras.isEmpty()) message("Turn on a camera above to use it for the doorbell")
+    if (settings.cameras.isEmpty()) message("Turn on a camera above first")
     items(settings.cameras, key = { camera -> "doorbell-camera-${camera.id}" }) { camera ->
         ListItem(
             selected = camera.isDoorbell,
@@ -320,8 +338,8 @@ private fun LazyListScope.doorbellPopupSection(
             selected = false,
             onClick = onOpenOverlaySettings,
             headlineContent = { Text("Display over other apps") },
-            supportingContent = {
-                Text(if (overlayPermissionGranted) "Allowed" else "Needed for the popup: open, then allow Family Portal")
+            supportingContent = if (overlayPermissionGranted) null else {
+                { Text("Required: select, then allow") }
             },
             trailingContent = { Switch(checked = overlayPermissionGranted, onCheckedChange = null) },
         )
@@ -331,41 +349,61 @@ private fun LazyListScope.doorbellPopupSection(
             selected = false,
             onClick = onTestDoorbellPopup,
             enabled = overlayPermissionGranted,
-            headlineContent = { Text("Show a test popup") },
-            supportingContent = { Text("Appears for 15 seconds") },
+            leadingContent = { Icon(Icons.Default.PictureInPicture, contentDescription = null) },
+            headlineContent = { Text("Test popup") },
+            supportingContent = { Text("15 seconds") },
         )
     }
 }
 
-private fun LazyListScope.subheader(title: String) {
+private fun LazyListScope.subheader(title: String, icon: ImageVector? = null) {
     item(key = "subheader-$title") {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Row(
             modifier = Modifier.padding(start = 16.dp, top = 8.dp),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            icon?.let {
+                Icon(it, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
-private fun LazyListScope.sectionHeader(title: String) {
+private fun LazyListScope.sectionHeader(title: String, icon: ImageVector) {
     item(key = "header-$title") {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleLarge,
+        Row(
             modifier = Modifier.padding(top = 20.dp, bottom = 4.dp),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(12.dp))
+            Text(title, style = MaterialTheme.typography.titleLarge)
+        }
     }
 }
 
-private fun LazyListScope.message(text: String) {
+private fun LazyListScope.message(text: String, icon: ImageVector? = null) {
     item {
-        Text(
-            text,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            icon?.let {
+                Icon(it, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -383,19 +421,22 @@ private fun LazyListScope.errorMessage(text: String) {
 @Composable
 private fun DeviceCodePanel(authorization: GoogleDeviceAuthorization) {
     Surface(shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("On your phone or computer, open")
-            Text(
-                authorization.verificationUri,
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text("and enter this code:")
+        Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Smartphone, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    authorization.verificationUri.removePrefix("https://").removePrefix("www."),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             Text(authorization.userCode, style = MaterialTheme.typography.displayMedium)
-            Text(
-                "Waiting for approval…",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(12.dp))
+                Text("Waiting…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

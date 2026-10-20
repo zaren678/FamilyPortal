@@ -27,7 +27,13 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.EventAvailable
+import androidx.compose.material.icons.filled.EventBusy
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Today
+import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -40,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,7 +58,8 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
+import androidx.tv.material3.OutlinedIconButton
+import androidx.tv.material3.OutlinedIconButtonDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.johnanderson.familyportal.calendar.CalendarEventEntity
@@ -195,13 +203,16 @@ private fun TvHeader(
         }
         weather?.let { TvWeatherSummary(it) }
         Spacer(Modifier.width(32.dp))
-        OutlinedButton(
+        OutlinedIconButton(
             onClick = onOpenSetup,
-            modifier = settingsInitialFocus?.let { Modifier.initialFocus(it) } ?: Modifier,
+            modifier = (settingsInitialFocus?.let { Modifier.initialFocus(it) } ?: Modifier)
+                .size(OutlinedIconButtonDefaults.LargeButtonSize),
         ) {
-            Icon(Icons.Default.Settings, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("Settings")
+            Icon(
+                Icons.Default.Settings,
+                contentDescription = "Settings",
+                modifier = Modifier.size(OutlinedIconButtonDefaults.LargeIconSize),
+            )
         }
     }
 }
@@ -241,14 +252,13 @@ private fun TvSetupPrompt(onOpenSetup: () -> Unit, initialFocus: InitialFocus) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(32.dp)) {
-            Text("Set up Family Portal on this TV", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Connect Google Calendar and Home Assistant. You'll approve the sign-ins " +
-                    "from your phone; this TV keeps its own settings.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text("Set up this TV", style = MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconLabel(Icons.Default.CalendarMonth, "Google Calendar")
+                Spacer(Modifier.width(32.dp))
+                IconLabel(Icons.Default.Home, "Home Assistant")
+            }
             Spacer(Modifier.height(24.dp))
             Button(onClick = onOpenSetup, modifier = Modifier.initialFocus(initialFocus)) {
                 Text("Set up")
@@ -270,10 +280,9 @@ private fun TvCameraGrid(
 ) {
     if (cameras.isEmpty() || homeAssistantUrl.isBlank()) {
         Box(modifier, contentAlignment = Alignment.Center) {
-            Text(
-                if (homeAssistantUrl.isBlank()) "Connect Home Assistant in Settings to see cameras"
-                else "Add cameras in Settings",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            EmptyState(
+                icon = Icons.Default.VideocamOff,
+                text = if (homeAssistantUrl.isBlank()) "Connect Home Assistant in Settings" else "Add cameras in Settings",
             )
         }
         return
@@ -363,13 +372,17 @@ private fun TvAgenda(
 ) {
     Surface(modifier = modifier, shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.fillMaxSize().padding(20.dp)) {
-            Text("Today", style = MaterialTheme.typography.headlineSmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Today, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(10.dp))
+                Text("Today", style = MaterialTheme.typography.headlineSmall)
+            }
             Spacer(Modifier.height(12.dp))
             if (events.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        if (googleAuthorized) "No events today" else "Connect Google Calendar in Settings",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    EmptyState(
+                        icon = if (googleAuthorized) Icons.Default.EventAvailable else Icons.Default.EventBusy,
+                        text = if (googleAuthorized) "Nothing today" else "Sign in to Google in Settings",
                     )
                 }
             } else {
@@ -434,6 +447,29 @@ private fun TvAgendaRow(
                 Text("All day", style = MaterialTheme.typography.labelLarge)
             }
         }
+    }
+}
+
+@Composable
+private fun IconLabel(icon: ImageVector, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(10.dp))
+        Text(text, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@Composable
+private fun EmptyState(icon: ImageVector, text: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(48.dp),
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

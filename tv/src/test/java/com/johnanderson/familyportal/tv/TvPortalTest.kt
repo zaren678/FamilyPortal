@@ -4,7 +4,8 @@ import com.johnanderson.familyportal.core.AppSettings
 import com.johnanderson.familyportal.core.CameraConfig
 import com.johnanderson.familyportal.tv.doorbell.doorbellPopupConfigured
 import com.johnanderson.familyportal.tv.ui.tvNeedsSetup
-import com.johnanderson.familyportal.tv.ui.viewerHint
+import com.johnanderson.familyportal.tv.ui.ViewerHint
+import com.johnanderson.familyportal.tv.ui.viewerHints
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -20,12 +21,13 @@ class TvPortalTest {
     }
 
     @Test
-    fun viewerHintOnlyOffersAvailableActions() {
-        assertEquals("Back Return", viewerHint(canSwitch = false, audioAvailable = false, muted = true))
+    fun viewerHintsOnlyOfferAvailableActions() {
+        assertEquals(emptyList<ViewerHint>(), viewerHints(canSwitch = false, audioAvailable = false))
         assertEquals(
-            "◀ ▶ Switch camera   ·   OK Unmute   ·   Back Return",
-            viewerHint(canSwitch = true, audioAvailable = true, muted = true),
+            listOf(ViewerHint.SWITCH_CAMERA, ViewerHint.TOGGLE_AUDIO),
+            viewerHints(canSwitch = true, audioAvailable = true),
         )
+        assertEquals(listOf(ViewerHint.TOGGLE_AUDIO), viewerHints(canSwitch = false, audioAvailable = true))
     }
 
     @Test

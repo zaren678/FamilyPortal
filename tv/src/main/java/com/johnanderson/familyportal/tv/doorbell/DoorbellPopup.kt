@@ -9,9 +9,15 @@ import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Doorbell
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,11 +41,13 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.johnanderson.familyportal.camera.CameraRepository
 import com.johnanderson.familyportal.core.CameraConfig
 import com.johnanderson.familyportal.tv.ui.FamilyPortalTvTheme
+import com.johnanderson.familyportal.tv.ui.RemoteHint
 import com.johnanderson.familyportal.ui.LiveCameraPreview
 
 /**
@@ -100,9 +108,9 @@ class DoorbellPopup(
             width,
             width * 9 / 16,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            // Focusable so OK and Back reach the popup instead of the app behind it.
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            // Focusable so OK and Back reach the popup instead of the app behind it. Not
+            // FLAG_NOT_TOUCHABLE: Android 12+ caps touch-through overlays at 80% opacity.
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.END
@@ -170,26 +178,38 @@ private fun DoorbellPopupContent(
                 color = Color.White,
             )
         }
-        Text(
-            "Someone's at the door",
+        Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(10.dp)
                 .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
                 .padding(horizontal = 10.dp, vertical = 4.dp),
-            color = MaterialTheme.colorScheme.onPrimary,
-            style = MaterialTheme.typography.titleSmall,
-        )
-        Text(
-            if (camera != null) "OK  Full screen   ·   Back  Dismiss" else "Back  Dismiss",
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(10.dp)
-                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-                .padding(horizontal = 10.dp, vertical = 4.dp),
-            color = Color.White,
-            style = MaterialTheme.typography.labelLarge,
-        )
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.Doorbell,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                "At the door",
+                color = MaterialTheme.colorScheme.onPrimary,
+                style = MaterialTheme.typography.titleSmall,
+            )
+        }
+        if (camera != null) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(10.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            ) {
+                RemoteHint(key = "OK", icon = Icons.Default.Fullscreen, iconDescription = "Full screen")
+            }
+        }
     }
 }
 
