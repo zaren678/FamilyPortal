@@ -310,6 +310,12 @@ class PortalViewModel(
         }
     }
 
+    fun setDoorbellCamera(cameraId: String) = viewModelScope.launch {
+        graph.settingsRepository.update { current ->
+            current.copy(cameras = current.cameras.map { it.copy(isDoorbell = it.id == cameraId) })
+        }
+    }
+
     fun updateDoorbellSettings(alertSeconds: Int) =
         viewModelScope.launch {
             graph.settingsRepository.update {

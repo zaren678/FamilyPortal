@@ -9,7 +9,7 @@ Dedicated landscape Android dashboard for a shared Google Calendar, Home Assista
 | `:core` | Settings and secure storage, Room calendar cache, Google and Home Assistant auth, HA discovery/catalog/weather, `CameraRepository`, `PortalViewModel` |
 | `:core-ui` | Shared Compose: theme, live camera preview and full-screen player, event dialog, calendar colours, weather panel |
 | `:app` | Portal app (`com.johnanderson.familyportal`): touch UI, Settings, doorbell service, boot receiver, HOME role |
-| `:tv` | Android TV app (`com.johnanderson.familyportal.tv`): D-pad dashboard, full-screen camera viewer, TV setup |
+| `:tv` | Android TV app (`com.johnanderson.familyportal.tv`): D-pad dashboard, full-screen camera viewer, TV setup, doorbell popup |
 
 Each device keeps its own settings and sign-ins; nothing is copied between the Portal and the TV.
 
@@ -71,7 +71,7 @@ Secrets are stored with an Android Keystore AES-GCM key and are not logged. Cale
 
 ## Android TV
 
-The TV app is view-only: live cameras, today's agenda, and weather. It has no doorbell alerts, HOME role, or PIN.
+The TV app shows live cameras, today's agenda, and weather, plus an optional doorbell popup. It has no HOME role or PIN.
 
 ```bash
 ./gradlew :tv:assembleDebug
@@ -85,3 +85,15 @@ Open Family Portal from the TV's app row, choose **Set up**, then:
 3. Turn on the cameras to show and choose a weather entity.
 
 On the dashboard, press OK on a camera to view it full screen; Left/Right switches cameras, OK toggles audio when available, and Back returns. The TV screensaver is only blocked while a camera is full screen.
+
+### Doorbell popup
+
+In Settings, under **Doorbell popup**, choose the person sensor and the doorbell camera, then turn on **Display over other apps** (it opens the system screen; or run `adb shell appops set com.johnanderson.familyportal.tv SYSTEM_ALERT_WINDOW allow`).
+
+When the sensor turns on while the TV is in use, a muted live view of the doorbell camera appears in the top-right corner over whatever is playing. While it's showing, **OK** opens the camera full screen and **Back** dismisses it; Back from full screen returns to what you were watching. The show keeps playing behind the popup, but other buttons do nothing until it closes. It closes on its own after the sensor clears plus the alert duration (30 seconds by default), or after 4 minutes, and is skipped when the TV is off.
+
+**Show a test popup** in Settings displays it for 15 seconds. Debug builds can also trigger one over any app:
+
+```bash
+adb shell am broadcast -a com.johnanderson.familyportal.tv.DEBUG_DOORBELL -p com.johnanderson.familyportal.tv
+```

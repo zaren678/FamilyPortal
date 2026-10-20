@@ -11,6 +11,7 @@ import com.johnanderson.familyportal.core.AppCoordinator
 import com.johnanderson.familyportal.core.NetworkMonitor
 import com.johnanderson.familyportal.core.SecureStore
 import com.johnanderson.familyportal.core.SettingsRepository
+import com.johnanderson.familyportal.ha.DoorbellMonitor
 import com.johnanderson.familyportal.ha.HomeAssistantClient
 import com.johnanderson.familyportal.ha.HomeAssistantAuthManager
 import com.johnanderson.familyportal.ha.HomeAssistantCatalogClient
@@ -58,6 +59,12 @@ class AppGraph(application: Application) {
     val homeAssistantClient = HomeAssistantClient(httpClient, json)
     val homeAssistantWeatherClient = HomeAssistantWeatherClient(httpClient, json, homeAssistantAuthManager)
     val cameraRepository = CameraRepository(httpClient, homeAssistantAuthManager)
+    val doorbellMonitor = DoorbellMonitor(
+        settingsRepository,
+        homeAssistantAuthManager,
+        homeAssistantClient,
+        cameraRepository,
+    )
     val coordinator = AppCoordinator(applicationScope)
 
 }

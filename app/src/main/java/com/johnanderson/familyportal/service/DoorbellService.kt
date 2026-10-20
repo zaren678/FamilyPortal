@@ -20,25 +20,13 @@ import com.johnanderson.familyportal.MainActivity
 import com.johnanderson.familyportal.R
 import com.johnanderson.familyportal.core.ConnectionState
 import com.johnanderson.familyportal.ha.DoorbellTransition
-import com.johnanderson.familyportal.ha.HomeAssistantAuthenticationException
-import com.johnanderson.familyportal.ha.doorbellTransition
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
-import kotlin.random.Random
 
 class DoorbellService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -69,82 +57,28 @@ class DoorbellService : Service() {
     }
 
     private fun keepDoorbellStreamWarm() {
-        scope.launch {
-            graph.settingsRepository.settings.collectLatest { settings ->
-                val doorbell = settings.cameras.firstOrNull { it.isDoorbell }
-                    ?: return@collectLatest
-                if (settings.homeAssistantUrl.isBlank()) return@collectLatest
-                val alertCamera = doorbell.copy(
-                    entityId = doorbell.previewEntityId.ifBlank { doorbell.entityId },
-                )
-                while (true) {
-                    graph.cameraRepository.prewarmHomeAssistantStream(
-                        settings.homeAssistantUrl,
-                        alertCamera,
-                    )
-                    delay(DOORBELL_PREWARM_INTERVAL_MILLIS)
-                }
-            }
-        }
+        scope.launch { graph.doorbellMonitor.keepDoorbellStreamWarm() }
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     private fun listenForDoorbell() {
         scope.launch {
-            graph.settingsRepository.settings
-                .distinctUntilChanged()
-                .flatMapLatest { settings ->
-                    if (settings.homeAssistantUrl.isBlank()) emptyFlow()
-                    else {
-                        var forceRefresh = false
-                        flow {
-                            val token = graph.homeAssistantAuthManager.accessToken(forceRefresh)
-                            forceRefresh = false
-                            if (!token.isNullOrBlank()) {
-                                emitAll(
-                                    graph.homeAssistantClient.stateChanges(
-                                        settings.homeAssistantUrl,
-                                        token,
-                                    ),
-                                )
-                            }
-                        }
-                            .map { settings to it }
-                            .retryWhen { cause, attempt ->
-                                if (cause is HomeAssistantAuthenticationException) forceRefresh = true
-                                Log.w(TAG, "Home Assistant event stream failed; retrying", cause)
-                                val backoff = (1_000L shl attempt.coerceAtMost(6).toInt())
-                                    .coerceAtMost(60_000L)
-                                delay(backoff + Random.nextLong(0, 250))
-                                true
-                            }
-                    }
-                }
-                .collect { (settings, change) ->
-                    val transition = change.doorbellTransition(settings.doorbellSensorEntityId)
-                    if (change.entityId == settings.doorbellSensorEntityId) {
-                        Log.i(
-                            TAG,
-                            "Doorbell sensor ${change.oldState} -> ${change.newState}; transition=$transition",
+            graph.doorbellMonitor.transitions().collect { (settings, transition) ->
+                when (transition) {
+                    DoorbellTransition.START -> {
+                        val doorbell = settings.cameras.firstOrNull { it.isDoorbell }
+                            ?: return@collect
+                        graph.coordinator.startDoorbell(
+                            cameraId = doorbell.id,
+                            playChime = true,
+                            maxDurationSeconds = DOORBELL_MAX_DURATION_SECONDS,
                         )
+                        wakeForAlert(playChime = true, durationSeconds = settings.alertDurationSeconds)
                     }
-                    when (transition) {
-                        DoorbellTransition.START -> {
-                            val doorbell = settings.cameras.firstOrNull { it.isDoorbell }
-                                ?: return@collect
-                            graph.coordinator.startDoorbell(
-                                cameraId = doorbell.id,
-                                playChime = true,
-                                maxDurationSeconds = DOORBELL_MAX_DURATION_SECONDS,
-                            )
-                            wakeForAlert(playChime = true, durationSeconds = settings.alertDurationSeconds)
-                        }
-                        DoorbellTransition.STOP -> graph.coordinator.finishDoorbell(
-                            postRollSeconds = settings.alertDurationSeconds,
-                        )
-                        null -> Unit
-                    }
+                    DoorbellTransition.STOP -> graph.coordinator.finishDoorbell(
+                        postRollSeconds = settings.alertDurationSeconds,
+                    )
                 }
+            }
         }
     }
 
@@ -276,7 +210,6 @@ class DoorbellService : Service() {
         internal const val ALERT_CHANNEL = "doorbell_alerts"
         private const val SERVICE_NOTIFICATION_ID = 11
         private const val ALERT_NOTIFICATION_ID = 12
-        private const val DOORBELL_PREWARM_INTERVAL_MILLIS = 30_000L
         private const val DOORBELL_MAX_DURATION_SECONDS = 4 * 60
 
         fun start(context: Context) {

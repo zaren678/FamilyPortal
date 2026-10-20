@@ -70,6 +70,11 @@ fun TvSetupScreen(
     onAddCamera: (HomeAssistantCameraChoice) -> Unit,
     onRemoveCamera: (String) -> Unit,
     onSelectWeather: (String) -> Unit,
+    overlayPermissionGranted: Boolean,
+    onSelectDoorbellSensor: (String) -> Unit,
+    onSelectDoorbellCamera: (String) -> Unit,
+    onOpenOverlaySettings: () -> Unit,
+    onTestDoorbellPopup: () -> Unit,
     onDone: () -> Unit,
 ) {
     var showAddressDialog by remember { mutableStateOf(false) }
@@ -199,6 +204,16 @@ fun TvSetupScreen(
                         )
                     }
                 }
+
+                doorbellPopupSection(
+                    settings = settings,
+                    catalog = catalog,
+                    overlayPermissionGranted = overlayPermissionGranted,
+                    onSelectDoorbellSensor = onSelectDoorbellSensor,
+                    onSelectDoorbellCamera = onSelectDoorbellCamera,
+                    onOpenOverlaySettings = onOpenOverlaySettings,
+                    onTestDoorbellPopup = onTestDoorbellPopup,
+                )
             }
             item { Spacer(Modifier.height(24.dp)) }
         }
@@ -220,6 +235,78 @@ internal fun List<CameraConfig>.configuredFor(choice: HomeAssistantCameraChoice)
     val choiceEntityIds = setOfNotNull(choice.main.entityId, choice.preview?.entityId)
     return firstOrNull { camera ->
         setOf(camera.entityId, camera.previewEntityId).filter(String::isNotBlank).any(choiceEntityIds::contains)
+    }
+}
+
+private fun LazyListScope.doorbellPopupSection(
+    settings: AppSettings,
+    catalog: HomeAssistantCatalog,
+    overlayPermissionGranted: Boolean,
+    onSelectDoorbellSensor: (String) -> Unit,
+    onSelectDoorbellCamera: (String) -> Unit,
+    onOpenOverlaySettings: () -> Unit,
+    onTestDoorbellPopup: () -> Unit,
+) {
+    sectionHeader("Doorbell popup")
+    message("When someone's at the door, show the doorbell camera in a corner over whatever is playing.")
+    subheader("Trigger")
+    item(key = "doorbell-off") {
+        ListItem(
+            selected = settings.doorbellSensorEntityId.isBlank(),
+            onClick = { onSelectDoorbellSensor("") },
+            headlineContent = { Text("Off") },
+        )
+    }
+    if (catalog.personSensors.isEmpty()) message("No person sensors found in Home Assistant")
+    items(catalog.personSensors, key = { sensor -> "doorbell-sensor-${sensor.entityId}" }) { sensor ->
+        ListItem(
+            selected = sensor.entityId == settings.doorbellSensorEntityId,
+            onClick = { onSelectDoorbellSensor(sensor.entityId) },
+            headlineContent = { Text(sensor.name) },
+            supportingContent = { Text(sensor.entityId) },
+        )
+    }
+    if (settings.doorbellSensorEntityId.isBlank()) return
+
+    subheader("Camera")
+    if (settings.cameras.isEmpty()) message("Turn on a camera above to use it for the doorbell")
+    items(settings.cameras, key = { camera -> "doorbell-camera-${camera.id}" }) { camera ->
+        ListItem(
+            selected = camera.isDoorbell,
+            onClick = { onSelectDoorbellCamera(camera.id) },
+            headlineContent = { Text(camera.name) },
+        )
+    }
+    item(key = "doorbell-permission") {
+        ListItem(
+            selected = false,
+            onClick = onOpenOverlaySettings,
+            headlineContent = { Text("Display over other apps") },
+            supportingContent = {
+                Text(if (overlayPermissionGranted) "Allowed" else "Needed for the popup: open, then allow Family Portal")
+            },
+            trailingContent = { Switch(checked = overlayPermissionGranted, onCheckedChange = null) },
+        )
+    }
+    item(key = "doorbell-test") {
+        ListItem(
+            selected = false,
+            onClick = onTestDoorbellPopup,
+            enabled = overlayPermissionGranted,
+            headlineContent = { Text("Show a test popup") },
+            supportingContent = { Text("Appears for 15 seconds") },
+        )
+    }
+}
+
+private fun LazyListScope.subheader(title: String) {
+    item(key = "subheader-$title") {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, top = 8.dp),
+        )
     }
 }
 

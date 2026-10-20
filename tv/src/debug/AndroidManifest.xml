@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <!-- Debug builds only. Shows a test doorbell popup over whatever is playing:
+             adb shell am broadcast -a com.johnanderson.familyportal.tv.DEBUG_DOORBELL -p com.johnanderson.familyportal.tv -->
+        <receiver
+            android:name=".doorbell.DebugDoorbellReceiver"
+            android:exported="true"
+            tools:ignore="ExportedReceiver">
+            <intent-filter>
+                <action android:name="com.johnanderson.familyportal.tv.DEBUG_DOORBELL" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
