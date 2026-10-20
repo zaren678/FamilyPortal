@@ -30,7 +30,6 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import com.johnanderson.familyportal.FamilyPortalApplication
 import com.johnanderson.familyportal.PortalViewModel
-import com.johnanderson.familyportal.core.AppSettings
 import com.johnanderson.familyportal.ha.HomeAssistantAuthActivity
 import com.johnanderson.familyportal.tv.doorbell.TvDoorbellService
 import com.johnanderson.familyportal.tv.doorbell.doorbellPopupConfigured
@@ -67,11 +66,8 @@ class TvMainActivity : ComponentActivity() {
 
 @Composable
 private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
-    // Read settings straight from the repository so "not loaded yet" (null) isn't
-    // mistaken for "nothing configured" and flashes the setup prompt.
-    val settingsFlow = remember(viewModel) { viewModel.graph.settingsRepository.settings }
-    val settings: AppSettings = settingsFlow.collectAsStateWithLifecycle(initialValue = null).value
-        ?: return
+    // Null until loaded, so "not loaded yet" isn't mistaken for "nothing set up".
+    val settings = viewModel.settings.collectAsStateWithLifecycle().value ?: return
     val events by viewModel.todayEvents.collectAsStateWithLifecycle()
     val googleAuthorized by viewModel.googleAuthorized.collectAsStateWithLifecycle()
     val weather by viewModel.weather.collectAsStateWithLifecycle()
@@ -84,6 +80,7 @@ private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
 
     if (showSetup) {
         val calendarSources by viewModel.calendarSources.collectAsStateWithLifecycle()
+        val calendarListError by viewModel.calendarListError.collectAsStateWithLifecycle()
         val googleDeviceAuthorization by viewModel.googleDeviceAuthorization.collectAsStateWithLifecycle()
         val googleAuthBusy by viewModel.googleAuthBusy.collectAsStateWithLifecycle()
         val googleAuthError by viewModel.googleAuthError.collectAsStateWithLifecycle()
@@ -101,6 +98,7 @@ private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
         TvSetupScreen(
             settings = settings,
             calendarSources = calendarSources,
+            calendarListError = calendarListError,
             googleConfigured = viewModel.graph.googleAuthManager.isConfigured,
             googleAuthorized = googleAuthorized,
             googleDeviceAuthorization = googleDeviceAuthorization,
@@ -115,11 +113,13 @@ private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
             onRefreshCalendars = viewModel::refreshCalendarList,
             onCalendarSelected = viewModel::selectCalendar,
             onStartDiscovery = viewModel::startHomeAssistantDiscovery,
+            onStopDiscovery = viewModel::stopHomeAssistantDiscovery,
             onConnectHomeAssistant = { baseUrl ->
                 homeAssistantAuthLauncher.launch(viewModel.authorizeHomeAssistant(baseUrl))
             },
             onAddCamera = { camera -> viewModel.addDiscoveredCamera(camera, doorbell = false) },
             onRemoveCamera = viewModel::deleteCamera,
+            onSetCameraAudio = viewModel::setCameraAudio,
             onSelectWeather = viewModel::selectWeatherEntity,
             overlayPermissionGranted = overlayPermissionGranted,
             onSelectDoorbellSensor = viewModel::selectDoorbellSensor,

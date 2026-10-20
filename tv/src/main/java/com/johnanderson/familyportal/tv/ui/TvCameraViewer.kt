@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -52,6 +53,7 @@ fun TvCameraViewer(
     }
     val camera = cameras[index.coerceIn(cameras.indices)]
     var muted by remember(camera.id) { mutableStateOf(true) }
+    var audioAvailable by remember(camera.id) { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
     BackHandler { onExit(camera.id) }
@@ -74,7 +76,9 @@ fun TvCameraViewer(
                         true
                     }
                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                        muted = !muted
+                        if (!audioAvailable) return@onKeyEvent false
+                        // Holding OK repeats key-downs; only the first press toggles.
+                        if (event.nativeKeyEvent.repeatCount == 0) muted = !muted
                         true
                     }
                     else -> false
@@ -88,7 +92,8 @@ fun TvCameraViewer(
                     homeAssistantUrl = homeAssistantUrl,
                     repository = repository,
                     audioEnabled = !muted,
-                ) { audioAvailable ->
+                ) { hasAudio ->
+                    SideEffect { audioAvailable = hasAudio }
                     Text(
                         camera.name,
                         modifier = Modifier.align(Alignment.TopStart).padding(36.dp),
@@ -98,7 +103,7 @@ fun TvCameraViewer(
                     Text(
                         viewerHint(
                             canSwitch = cameras.size > 1,
-                            audioAvailable = audioAvailable,
+                            audioAvailable = hasAudio,
                             muted = muted,
                         ),
                         modifier = Modifier

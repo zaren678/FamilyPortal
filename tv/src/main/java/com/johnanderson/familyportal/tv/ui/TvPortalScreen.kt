@@ -1,5 +1,9 @@
 package com.johnanderson.familyportal.tv.ui
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -19,12 +23,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,11 +39,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.tv.material3.Border
@@ -84,8 +89,9 @@ fun TvPortalScreen(
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsState()
-    // Stop all video when the TV leaves the app or the screensaver starts.
-    val active = lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
+    // Stop all video when the TV leaves the app or the screensaver starts. Older
+    // Android TV releases run the screensaver without pausing the activity.
+    val active = lifecycleState.isAtLeast(Lifecycle.State.RESUMED) && !rememberIsDreaming()
     val now by produceState(Instant.now()) {
         while (true) {
             value = Instant.now()
@@ -119,6 +125,8 @@ fun TvPortalScreen(
         EventDetailDialog(event = event, onDismiss = { selectedEvent = null })
     }
 
+    // Declared after the full-screen return so focus is placed afresh when coming back from a camera.
+    val initialFocus = rememberInitialFocus()
     val needsSetup = tvNeedsSetup(settings, googleAuthorized)
     Column(
         modifier
@@ -130,11 +138,11 @@ fun TvPortalScreen(
             zone = zone,
             weather = weather,
             onOpenSetup = onOpenSetup,
-            requestFocus = !needsSetup && cameras.isEmpty() && agenda.isEmpty(),
+            settingsInitialFocus = initialFocus.takeIf { !needsSetup && cameras.isEmpty() && agenda.isEmpty() },
         )
         Spacer(Modifier.height(20.dp))
         if (needsSetup) {
-            TvSetupPrompt(onOpenSetup = onOpenSetup)
+            TvSetupPrompt(onOpenSetup = onOpenSetup, initialFocus = initialFocus)
         } else {
             Row(
                 Modifier.fillMaxSize(),
@@ -146,6 +154,7 @@ fun TvPortalScreen(
                     repository = cameraRepository,
                     active = active,
                     focusCameraId = lastViewedCameraId ?: cameras.firstOrNull()?.id,
+                    initialFocus = initialFocus,
                     onCameraSelected = { fullscreenCameraId = it },
                     modifier = Modifier.weight(1.6f).fillMaxHeight(),
                 )
@@ -153,7 +162,7 @@ fun TvPortalScreen(
                     events = agenda,
                     googleAuthorized = googleAuthorized,
                     zone = zone,
-                    requestFocus = cameras.isEmpty(),
+                    initialFocus = initialFocus.takeIf { cameras.isEmpty() },
                     onEventSelected = { selectedEvent = it },
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
@@ -172,7 +181,7 @@ private fun TvHeader(
     zone: ZoneId,
     weather: WeatherSnapshot?,
     onOpenSetup: () -> Unit,
-    requestFocus: Boolean,
+    settingsInitialFocus: InitialFocus?,
 ) {
     val local = now.atZone(zone)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -186,7 +195,10 @@ private fun TvHeader(
         }
         weather?.let { TvWeatherSummary(it) }
         Spacer(Modifier.width(32.dp))
-        OutlinedButton(onClick = onOpenSetup, modifier = Modifier.initialFocus(requestFocus)) {
+        OutlinedButton(
+            onClick = onOpenSetup,
+            modifier = settingsInitialFocus?.let { Modifier.initialFocus(it) } ?: Modifier,
+        ) {
             Icon(Icons.Default.Settings, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text("Settings")
@@ -223,7 +235,7 @@ private fun TvWeatherSummary(weather: WeatherSnapshot) {
 }
 
 @Composable
-private fun TvSetupPrompt(onOpenSetup: () -> Unit) {
+private fun TvSetupPrompt(onOpenSetup: () -> Unit, initialFocus: InitialFocus) {
     Surface(
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier.fillMaxWidth(),
@@ -238,7 +250,7 @@ private fun TvSetupPrompt(onOpenSetup: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(24.dp))
-            Button(onClick = onOpenSetup, modifier = Modifier.initialFocus(true)) {
+            Button(onClick = onOpenSetup, modifier = Modifier.initialFocus(initialFocus)) {
                 Text("Set up")
             }
         }
@@ -252,6 +264,7 @@ private fun TvCameraGrid(
     repository: CameraRepository,
     active: Boolean,
     focusCameraId: String?,
+    initialFocus: InitialFocus,
     onCameraSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -266,9 +279,14 @@ private fun TvCameraGrid(
         return
     }
     PrewarmCameraStreams(cameras, homeAssistantUrl, repository, active)
+    // Start scrolled to the camera that should take focus, so it's composed and can.
+    val gridState = rememberLazyGridState(
+        initialFirstVisibleItemIndex = cameras.indexOfFirst { it.id == focusCameraId }.coerceAtLeast(0),
+    )
     LazyVerticalGrid(
         columns = GridCells.Fixed(cameraGridColumns(cameras.size)),
         modifier = modifier,
+        state = gridState,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -279,8 +297,8 @@ private fun TvCameraGrid(
                 repository = repository,
                 active = active,
                 startupDelayMillis = index * 600L,
-                requestFocus = camera.id == focusCameraId,
                 onClick = { onCameraSelected(camera.id) },
+                modifier = Modifier.initialFocus(initialFocus, enabled = camera.id == focusCameraId),
             )
         }
     }
@@ -293,15 +311,14 @@ private fun TvCameraTile(
     repository: CameraRepository,
     active: Boolean,
     startupDelayMillis: Long,
-    requestFocus: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9f)
-            .initialFocus(requestFocus),
+            .aspectRatio(16f / 9f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Black,
@@ -340,7 +357,7 @@ private fun TvAgenda(
     events: List<CalendarEventEntity>,
     googleAuthorized: Boolean,
     zone: ZoneId,
-    requestFocus: Boolean,
+    initialFocus: InitialFocus?,
     onEventSelected: (CalendarEventEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -361,8 +378,12 @@ private fun TvAgenda(
                         TvAgendaRow(
                             event = event,
                             zone = zone,
-                            requestFocus = requestFocus && index == 0,
                             onClick = { onEventSelected(event) },
+                            modifier = if (initialFocus != null && index == 0) {
+                                Modifier.initialFocus(initialFocus)
+                            } else {
+                                Modifier
+                            },
                         )
                     }
                 }
@@ -375,13 +396,13 @@ private fun TvAgenda(
 private fun TvAgendaRow(
     event: CalendarEventEntity,
     zone: ZoneId,
-    requestFocus: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val eventColor = eventBackgroundColor(event.color)
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().initialFocus(requestFocus),
+        modifier = modifier.fillMaxWidth(),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = eventColor,
@@ -416,13 +437,25 @@ private fun TvAgendaRow(
     }
 }
 
-/** Requests focus once when first composed, e.g. to restore the last-viewed camera. */
+/** Whether the TV's screensaver is running, from the system's dreaming broadcasts. */
 @Composable
-internal fun Modifier.initialFocus(enabled: Boolean): Modifier {
-    if (!enabled) return this
-    val requester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { requester.requestFocus() } }
-    return focusRequester(requester)
+private fun rememberIsDreaming(): Boolean {
+    val context = LocalContext.current
+    var dreaming by remember { mutableStateOf(false) }
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                dreaming = intent.action == Intent.ACTION_DREAMING_STARTED
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_DREAMING_STARTED)
+            addAction(Intent.ACTION_DREAMING_STOPPED)
+        }
+        ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+    return dreaming
 }
 
 private fun CalendarEventEntity.tvTimeLabel(zone: ZoneId): String {

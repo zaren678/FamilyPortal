@@ -20,6 +20,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,10 +39,10 @@ import androidx.tv.material3.Text
 import com.johnanderson.familyportal.calendar.CalendarSourceEntity
 import com.johnanderson.familyportal.calendar.GoogleDeviceAuthorization
 import com.johnanderson.familyportal.core.AppSettings
-import com.johnanderson.familyportal.core.CameraConfig
 import com.johnanderson.familyportal.ha.DiscoveredHomeAssistant
 import com.johnanderson.familyportal.ha.HomeAssistantCameraChoice
 import com.johnanderson.familyportal.ha.HomeAssistantCatalog
+import com.johnanderson.familyportal.ha.configuredFor
 import com.johnanderson.familyportal.ha.logicalCameras
 
 /**
@@ -52,6 +53,7 @@ import com.johnanderson.familyportal.ha.logicalCameras
 fun TvSetupScreen(
     settings: AppSettings,
     calendarSources: List<CalendarSourceEntity>,
+    calendarListError: String?,
     googleConfigured: Boolean,
     googleAuthorized: Boolean,
     googleDeviceAuthorization: GoogleDeviceAuthorization?,
@@ -66,9 +68,11 @@ fun TvSetupScreen(
     onRefreshCalendars: () -> Unit,
     onCalendarSelected: (String, Boolean) -> Unit,
     onStartDiscovery: () -> Unit,
+    onStopDiscovery: () -> Unit,
     onConnectHomeAssistant: (String) -> Unit,
     onAddCamera: (HomeAssistantCameraChoice) -> Unit,
     onRemoveCamera: (String) -> Unit,
+    onSetCameraAudio: (String, Boolean) -> Unit,
     onSelectWeather: (String) -> Unit,
     overlayPermissionGranted: Boolean,
     onSelectDoorbellSensor: (String) -> Unit,
@@ -78,7 +82,12 @@ fun TvSetupScreen(
     onDone: () -> Unit,
 ) {
     var showAddressDialog by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { onStartDiscovery() }
+    // Keyed on sign-in so the first calendar takes focus after the code is approved.
+    val initialFocus = rememberInitialFocus(googleAuthorized)
+    DisposableEffect(Unit) {
+        onStartDiscovery()
+        onDispose { onStopDiscovery() }
+    }
     LaunchedEffect(googleAuthorized, calendarSources.isEmpty()) {
         if (googleAuthorized && calendarSources.isEmpty()) onRefreshCalendars()
     }
@@ -117,18 +126,32 @@ fun TvSetupScreen(
                         selected = false,
                         onClick = onGoogleSignIn,
                         enabled = !googleAuthBusy,
-                        modifier = Modifier.initialFocus(true),
+                        modifier = Modifier.initialFocus(initialFocus),
                         headlineContent = { Text("Sign in with Google") },
                         supportingContent = { Text("You'll get a code to enter on your phone") },
                     )
                 }
                 else -> {
-                    if (calendarSources.isEmpty()) message("Loading your calendars…")
+                    if (calendarSources.isEmpty()) {
+                        if (calendarListError == null) {
+                            message("Loading your calendars…")
+                        } else {
+                            errorMessage("Couldn't load your calendars: $calendarListError")
+                            item(key = "calendars-retry") {
+                                ListItem(
+                                    selected = false,
+                                    onClick = onRefreshCalendars,
+                                    modifier = Modifier.initialFocus(initialFocus),
+                                    headlineContent = { Text("Try again") },
+                                )
+                            }
+                        }
+                    }
                     itemsIndexed(calendarSources, key = { _, calendar -> "calendar-${calendar.id}" }) { index, calendar ->
                         ListItem(
                             selected = false,
                             onClick = { onCalendarSelected(calendar.id, !calendar.selected) },
-                            modifier = Modifier.initialFocus(index == 0),
+                            modifier = Modifier.initialFocus(initialFocus, enabled = index == 0),
                             headlineContent = { Text(calendar.name) },
                             supportingContent = if (calendar.primaryCalendar) {
                                 { Text("Primary") }
@@ -166,6 +189,17 @@ fun TvSetupScreen(
                     trailingContent = { Text("Connect") },
                 )
             }
+            item(key = "ha-search-again") {
+                ListItem(
+                    selected = false,
+                    onClick = {
+                        onStopDiscovery()
+                        onStartDiscovery()
+                    },
+                    enabled = !homeAssistantBusy,
+                    headlineContent = { Text("Search again") },
+                )
+            }
             item(key = "ha-manual") {
                 ListItem(
                     selected = false,
@@ -191,6 +225,18 @@ fun TvSetupScreen(
                         supportingContent = { Text(choice.main.entityId) },
                         trailingContent = { Switch(checked = configured != null, onCheckedChange = null) },
                     )
+                }
+                if (settings.cameras.isNotEmpty()) {
+                    subheader("Audio")
+                    items(settings.cameras, key = { camera -> "audio-${camera.id}" }) { camera ->
+                        ListItem(
+                            selected = false,
+                            onClick = { onSetCameraAudio(camera.id, !camera.hasAudio) },
+                            headlineContent = { Text(camera.name) },
+                            supportingContent = { Text("Allow unmuting in full screen") },
+                            trailingContent = { Switch(checked = camera.hasAudio, onCheckedChange = null) },
+                        )
+                    }
                 }
 
                 if (catalog.weather.isNotEmpty()) {
@@ -227,14 +273,6 @@ fun TvSetupScreen(
                 onConnectHomeAssistant(address)
             },
         )
-    }
-}
-
-/** The configured camera matching a Home Assistant camera by main or preview entity, if any. */
-internal fun List<CameraConfig>.configuredFor(choice: HomeAssistantCameraChoice): CameraConfig? {
-    val choiceEntityIds = setOfNotNull(choice.main.entityId, choice.preview?.entityId)
-    return firstOrNull { camera ->
-        setOf(camera.entityId, camera.previewEntityId).filter(String::isNotBlank).any(choiceEntityIds::contains)
     }
 }
 
@@ -379,7 +417,7 @@ private fun HomeAssistantAddressDialog(
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { if (address.isNotBlank()) onConnect(address) }),
-                modifier = Modifier.initialFocus(true),
+                modifier = Modifier.initialFocus(rememberInitialFocus()),
             )
         },
         confirmButton = {
