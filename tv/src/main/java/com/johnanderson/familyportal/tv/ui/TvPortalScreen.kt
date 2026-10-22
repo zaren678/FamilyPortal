@@ -222,16 +222,23 @@ internal enum class AgendaDay { TODAY, TOMORROW }
 
 internal data class AgendaSection(val day: AgendaDay, val events: List<CalendarEventEntity>)
 
-/** Today's events, plus tomorrow's once nothing timed is left today. */
+/**
+ * Today's events, until nothing timed is left today. Then tomorrow's events take over,
+ * below whatever is still relevant today (all-day events), so they show without scrolling.
+ */
 internal fun tvAgendaSections(
     today: List<CalendarEventEntity>,
     tomorrow: List<CalendarEventEntity>,
     now: Instant,
-): List<AgendaSection> = buildList {
-    add(AgendaSection(AgendaDay.TODAY, today))
-    if (nextTimedEvent(today, now) == null && tomorrow.isNotEmpty()) {
-        add(AgendaSection(AgendaDay.TOMORROW, tomorrow))
+): List<AgendaSection> {
+    if (nextTimedEvent(today, now) != null || tomorrow.isEmpty()) {
+        return listOf(AgendaSection(AgendaDay.TODAY, today))
     }
+    val stillToday = today.filterNot { it.isPastAt(now) }
+    return listOfNotNull(
+        AgendaSection(AgendaDay.TODAY, stillToday).takeIf { stillToday.isNotEmpty() },
+        AgendaSection(AgendaDay.TOMORROW, tomorrow),
+    )
 }
 
 internal fun CalendarEventEntity.isPastAt(now: Instant): Boolean =
@@ -488,11 +495,12 @@ private fun TvAgenda(
             }
             val firstEvent = sections.firstNotNullOfOrNull { it.events.firstOrNull() }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                sections.forEach { section ->
+                sections.forEachIndexed { index, section ->
                     item(key = "header-${section.day}") {
                         AgendaHeader(
                             section.day,
-                            Modifier.padding(top = if (section.day == AgendaDay.TODAY) 0.dp else 14.dp, bottom = 2.dp),
+                            first = index == 0,
+                            modifier = Modifier.padding(top = if (index == 0) 0.dp else 14.dp, bottom = 2.dp),
                         )
                     }
                     if (section.events.isEmpty()) {
@@ -520,7 +528,7 @@ private fun TvAgenda(
 }
 
 @Composable
-private fun AgendaHeader(day: AgendaDay, modifier: Modifier = Modifier) {
+private fun AgendaHeader(day: AgendaDay, modifier: Modifier = Modifier, first: Boolean = true) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Icon(
             if (day == AgendaDay.TODAY) Icons.Default.Today else Icons.Default.Event,
@@ -530,7 +538,7 @@ private fun AgendaHeader(day: AgendaDay, modifier: Modifier = Modifier) {
         Spacer(Modifier.width(10.dp))
         Text(
             if (day == AgendaDay.TODAY) "Today" else "Tomorrow",
-            style = if (day == AgendaDay.TODAY) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
+            style = if (first) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
         )
     }
 }

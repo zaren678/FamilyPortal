@@ -28,13 +28,25 @@ class TvAgendaAndStatusTest {
         val lockup = event("lockup", startHour = 21, endHour = 22)
         val tomorrow = listOf(event("school", startHour = 8, endHour = 9, dayOffset = 1))
 
-        assertEquals(listOf(AgendaDay.TODAY), tvAgendaSections(listOf(spa, lockup), tomorrow, evening).map { it.day })
         assertEquals(
-            listOf(AgendaDay.TODAY, AgendaDay.TOMORROW),
-            tvAgendaSections(listOf(spa), tomorrow, evening).map { it.day },
+            listOf(AgendaDay.TODAY to listOf(spa, lockup)),
+            tvAgendaSections(listOf(spa, lockup), tomorrow, evening).map { it.day to it.events },
         )
-        // Nothing to add when tomorrow is empty.
-        assertEquals(listOf(AgendaDay.TODAY), tvAgendaSections(listOf(spa), emptyList(), evening).map { it.day })
+        // Finished events give way to tomorrow; today's all-day events stay.
+        val bday = event("bday", startHour = 0, endHour = 0, allDay = true)
+        assertEquals(
+            listOf(AgendaDay.TODAY to listOf(bday), AgendaDay.TOMORROW to tomorrow),
+            tvAgendaSections(listOf(bday, spa), tomorrow, evening).map { it.day to it.events },
+        )
+        assertEquals(
+            listOf(AgendaDay.TOMORROW to tomorrow),
+            tvAgendaSections(listOf(spa), tomorrow, evening).map { it.day to it.events },
+        )
+        // With nothing tomorrow, today's finished events stay (dimmed) rather than leaving an empty panel.
+        assertEquals(
+            listOf(AgendaDay.TODAY to listOf(spa)),
+            tvAgendaSections(listOf(spa), emptyList(), evening).map { it.day to it.events },
+        )
     }
 
     @Test
