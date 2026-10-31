@@ -38,7 +38,8 @@ class AppGraph(application: Application) {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     val httpClient = OkHttpClient.Builder()
-        .pingInterval(20, TimeUnit.SECONDS)
+        // Notices a dead doorbell connection (e.g. after the TV wakes) within 20 seconds.
+        .pingInterval(10, TimeUnit.SECONDS)
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()

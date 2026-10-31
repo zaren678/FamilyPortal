@@ -40,6 +40,8 @@ android {
     kotlinOptions.jvmTarget = "17"
 
     testOptions.unitTests.isIncludeAndroidResources = true
+    // android.util.Log calls in shared code are no-ops under unit tests.
+    testOptions.unitTests.isReturnDefaultValues = true
 }
 
 dependencies {
