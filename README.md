@@ -57,7 +57,16 @@ Install and make Family Portal the default HOME app:
 ./scripts/provision_portal.sh app/build/outputs/apk/debug/app-debug.apk
 ```
 
-To restore the Meta launcher, list HOME candidates with `adb shell cmd package query-activities -a android.intent.action.MAIN -c android.intent.category.HOME` and set the desired component with `adb shell cmd package set-home-activity COMPONENT`.
+With more than one device on adb, set `ANDROID_SERIAL` to the Portal's serial first.
+
+Once Family Portal is the home screen, Home always comes back to it. To reach the Portal's own settings (for example, to turn USB debugging back on), open Family Portal's **Settings → Device**:
+
+- **Device settings** opens the Portal's Settings.
+- **Portal home screen** opens Meta's home screen without changing the default.
+
+The provisioning script won't make Family Portal the home screen unless one of these works. The Device section is behind the settings PIN, and a forgotten PIN can't be recovered, so keep it somewhere safe.
+
+To restore the Meta launcher permanently, list HOME candidates with `adb shell cmd package query-activities -a android.intent.action.MAIN -c android.intent.category.HOME` and set the desired component with `adb shell cmd package set-home-activity COMPONENT` (on the Portal Mini, `com.facebook.alohaapps.launcher/com.facebook.aloha.app.home.touch.HomeActivity`).
 
 ## First-run configuration
 
