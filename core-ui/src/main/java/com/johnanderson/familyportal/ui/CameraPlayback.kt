@@ -3,6 +3,7 @@ package com.johnanderson.familyportal.ui
 import android.content.Context
 import android.util.Log
 import android.view.ViewGroup
+import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -32,7 +33,12 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import com.johnanderson.familyportal.camera.CameraRepository
@@ -164,14 +170,17 @@ fun FullScreenCameraVideo(
     val previewCamera = remember(camera) { camera.previewStream() }
     var streamUri by remember(camera.id, previewCamera.entityId, homeAssistantUrl) { mutableStateOf<String?>(null) }
     var streamAttempt by remember(camera.id, previewCamera.entityId, homeAssistantUrl) { mutableStateOf(0) }
+    // Failures since the preview last played, so a long viewing doesn't use up its retries.
+    var streamFailures by remember(camera.id, previewCamera.entityId, homeAssistantUrl) { mutableStateOf(0) }
     var playbackReady by remember(camera.id, previewCamera.entityId, homeAssistantUrl) { mutableStateOf(false) }
     var playbackFailed by remember(camera.id, previewCamera.entityId, homeAssistantUrl) { mutableStateOf(false) }
     var fallbackSnapshot by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf<ByteArray?>(null) }
     fun retryStream() {
-        if (streamAttempt >= MAX_STREAM_ATTEMPTS) {
+        if (streamFailures >= MAX_STREAM_ATTEMPTS) {
             playbackFailed = true
             return
         }
+        streamFailures += 1
         repository.invalidateHomeAssistantStream(homeAssistantUrl, previewCamera)
         streamUri = null
         playbackReady = false
@@ -199,7 +208,12 @@ fun FullScreenCameraVideo(
     }
     var qualityStreamUri by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf<String?>(null) }
     var qualityAttempt by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf(0) }
+    // Failures since the main stream last played; see shouldRetryMainStream.
+    var qualityFailures by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf(0) }
+    var qualityHasPlayed by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf(false) }
     var qualityReady by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf(false) }
+    // Picking the same main stream back up after a hiccup, with its last frame still showing.
+    var qualityRecovering by remember(camera.id, camera.entityId, homeAssistantUrl) { mutableStateOf(false) }
     var previewIsQuality by remember(camera.id, previewCamera.entityId, camera.entityId, homeAssistantUrl) {
         mutableStateOf(false)
     }
@@ -211,9 +225,13 @@ fun FullScreenCameraVideo(
         delay(QUALITY_FALLBACK_DELAY_MILLIS)
         startQuality = true
     }
+    fun retryQuality() {
+        qualityFailures += 1
+        if (shouldRetryMainStream(qualityFailures, qualityHasPlayed)) qualityAttempt += 1
+    }
     LaunchedEffect(startQuality, camera.id, camera.entityId, homeAssistantUrl, qualityAttempt) {
         if (!startQuality) return@LaunchedEffect
-        if (qualityAttempt > 0) delay(1_000L * qualityAttempt)
+        if (qualityFailures > 0) delay(retryDelayMillis(qualityFailures))
         runCatching {
             withTimeout(30_000L) {
                 repository.preferredStreamUri(
@@ -226,11 +244,22 @@ fun FullScreenCameraVideo(
             if (uri == streamUri) previewIsQuality = true else qualityStreamUri = uri
         }.onFailure {
             Log.e("FamilyPortalCamera", "Quality stream request failed for ${camera.entityId}", it)
-            if (qualityAttempt < MAX_QUALITY_STREAM_ATTEMPTS) qualityAttempt += 1
+            retryQuality()
         }
     }
     val qualityPlayer = remember(camera.id, camera.entityId, qualityStreamUri, qualityAttempt) {
         qualityStreamUri?.let { uri -> mutedCameraPlayer(context, uri) }
+    }
+    /** Shows the preview while a fresh main stream is requested. */
+    fun replaceQualityStream() {
+        if (qualityReady) {
+            player?.prepare()
+            player?.play()
+        }
+        qualityReady = false
+        qualityRecovering = false
+        qualityStreamUri = null
+        retryQuality()
     }
     LaunchedEffect(player, qualityPlayer, qualityReady, previewIsQuality, audioEnabled, camera.hasAudio) {
         val previewAudio = audioEnabled && camera.hasAudio && previewIsQuality
@@ -245,6 +274,7 @@ fun FullScreenCameraVideo(
             override fun onRenderedFirstFrame() {
                 playbackReady = true
                 playbackFailed = false
+                streamFailures = 0
                 startQuality = true
             }
             override fun onPlayerError(error: PlaybackException) {
@@ -261,18 +291,32 @@ fun FullScreenCameraVideo(
     DisposableEffect(qualityPlayer) {
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() {
+                Log.i("FamilyPortalCamera", "Quality stream playing for ${camera.entityId}")
                 qualityReady = true
+                qualityHasPlayed = true
+                qualityRecovering = false
+                qualityFailures = 0
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying && qualityRecovering) {
+                    Log.i("FamilyPortalCamera", "Quality stream recovered for ${camera.entityId}")
+                    qualityRecovering = false
+                    qualityFailures = 0
+                }
             }
 
             override fun onPlayerError(error: PlaybackException) {
                 Log.e("FamilyPortalCamera", "Quality playback failed for ${camera.entityId}", error)
-                if (qualityReady) {
-                    player?.prepare()
-                    player?.play()
+                if (qualityReady && !qualityRecovering) {
+                    // Usually a stall or Home Assistant restarting the camera's stream:
+                    // rejoin it at the live edge before dropping to the preview.
+                    qualityRecovering = true
+                    qualityPlayer?.seekToDefaultPosition()
+                    qualityPlayer?.prepare()
+                } else {
+                    replaceQualityStream()
                 }
-                qualityReady = false
-                qualityStreamUri = null
-                if (qualityAttempt < MAX_QUALITY_STREAM_ATTEMPTS) qualityAttempt += 1
             }
         }
         qualityPlayer?.addListener(listener)
@@ -283,6 +327,12 @@ fun FullScreenCameraVideo(
     }
     LaunchedEffect(qualityReady) {
         if (qualityReady) player?.stop()
+    }
+    LaunchedEffect(qualityRecovering) {
+        if (!qualityRecovering) return@LaunchedEffect
+        delay(QUALITY_RECOVERY_TIMEOUT_MILLIS)
+        Log.w("FamilyPortalCamera", "Quality stream didn't recover for ${camera.entityId}; requesting a new one")
+        replaceQualityStream()
     }
     LaunchedEffect(player, qualityReady) {
         if (player == null || qualityReady) return@LaunchedEffect
@@ -299,7 +349,7 @@ fun FullScreenCameraVideo(
     }
     Box(modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
         if (qualityPlayer != null) {
-            PlayerSurface(qualityPlayer, Modifier.fillMaxSize())
+            PlayerSurface(qualityPlayer, Modifier.fillMaxSize(), keepLastFrame = true)
         }
         if (!qualityReady && !playbackFailed && player != null) {
             PlayerSurface(player, Modifier.fillMaxSize())
@@ -335,8 +385,10 @@ fun FullScreenCameraVideo(
 }
 
 /** Starts playing [uri] muted; callers raise the volume when audio is wanted. */
+@OptIn(UnstableApi::class) // DefaultMediaSourceFactory.setLoadErrorHandlingPolicy
 private fun mutedCameraPlayer(context: Context, uri: String): ExoPlayer =
     ExoPlayer.Builder(context)
+        .setMediaSourceFactory(DefaultMediaSourceFactory(context).setLoadErrorHandlingPolicy(CameraLoadErrorPolicy))
         .setAudioAttributes(CAMERA_AUDIO_ATTRIBUTES, false)
         .build()
         .apply {
@@ -346,13 +398,33 @@ private fun mutedCameraPlayer(context: Context, uri: String): ExoPlayer =
             prepare()
         }
 
+/**
+ * Home Assistant answers HTTP 416 for a low-latency HLS part it can't serve yet,
+ * where the HLS spec says 404. ExoPlayer retries a 404 there but treats 416 as
+ * fatal, which dropped some cameras' main stream every few seconds. Retry it shortly.
+ */
+@UnstableApi
+private object CameraLoadErrorPolicy : DefaultLoadErrorHandlingPolicy() {
+    override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+        val error = loadErrorInfo.exception
+        if (error is HttpDataSource.InvalidResponseCodeException && error.responseCode == 416) {
+            Log.d("FamilyPortalCamera", "Home Assistant answered 416 for a stream part; retrying")
+            return RANGE_NOT_SATISFIABLE_RETRY_MILLIS
+        }
+        return super.getRetryDelayMsFor(loadErrorInfo)
+    }
+}
+
+/** [keepLastFrame] leaves the last frame up, instead of black, while [player] re-prepares. */
+@OptIn(UnstableApi::class) // setKeepContentOnPlayerReset
 @Composable
-private fun PlayerSurface(player: ExoPlayer, modifier: Modifier = Modifier) {
+private fun PlayerSurface(player: ExoPlayer, modifier: Modifier = Modifier, keepLastFrame: Boolean = false) {
     AndroidView(
         factory = {
             PlayerView(it).apply {
                 this.player = player
                 useController = false
+                setKeepContentOnPlayerReset(keepLastFrame)
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -372,3 +444,17 @@ private val CAMERA_AUDIO_ATTRIBUTES = AudioAttributes.Builder()
 private const val MAX_STREAM_ATTEMPTS = 3
 private const val MAX_QUALITY_STREAM_ATTEMPTS = 2
 private const val QUALITY_FALLBACK_DELAY_MILLIS = 3_000L
+private const val QUALITY_RECOVERY_TIMEOUT_MILLIS = 15_000L
+private const val RANGE_NOT_SATISFIABLE_RETRY_MILLIS = 500L
+
+/**
+ * A main stream that has played is always retried after it fails, however long the
+ * viewing. One that hasn't gets a few tries, then the preview stays up (e.g. a codec
+ * this device can't play).
+ */
+internal fun shouldRetryMainStream(failuresSinceLastPlayed: Int, hasPlayed: Boolean): Boolean =
+    hasPlayed || failuresSinceLastPlayed <= MAX_QUALITY_STREAM_ATTEMPTS
+
+/** 1, 2, 4, 8, then every 15 seconds. */
+internal fun retryDelayMillis(failures: Int): Long =
+    (1_000L shl (failures - 1).coerceIn(0, 4)).coerceAtMost(15_000L)
