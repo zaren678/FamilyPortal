@@ -1,5 +1,6 @@
 package com.johnanderson.familyportal
 import android.Manifest
+import android.app.Activity
 import android.app.KeyguardManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -421,6 +422,12 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                         onOpenFullScreenIntentSettings = fullScreenIntentSettingsIntent(activity)?.let { intent ->
                             { activity.startActivity(intent) }
                         },
+                        onOpenDeviceSettings = remember { deviceSettingsIntent(activity) }?.let { intent ->
+                            { activity.startSystemScreen(intent) }
+                        },
+                        onOpenOtherHomeScreen = remember { otherHomeScreenIntent(activity) }?.let { intent ->
+                            { activity.startSystemScreen(intent) }
+                        },
                     )
                 }
             }
@@ -460,6 +467,12 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
             },
         )
     }
+}
+
+/** Opens another app's screen, logging rather than crashing the home screen if it can't. */
+private fun Activity.startSystemScreen(intent: Intent) {
+    runCatching { startActivity(intent) }
+        .onFailure { Log.e("FamilyPortalActivity", "Unable to open ${intent.component ?: intent.action}", it) }
 }
 
 @Composable

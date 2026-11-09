@@ -88,6 +88,8 @@ fun SettingsScreen(
     alertReadiness: AlertReadiness? = null,
     onOpenAlertSettings: () -> Unit = {},
     onOpenFullScreenIntentSettings: (() -> Unit)? = null,
+    onOpenDeviceSettings: (() -> Unit)? = null,
+    onOpenOtherHomeScreen: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var alertSeconds by rememberSaveable(settings.alertDurationSeconds) {
@@ -218,6 +220,16 @@ fun SettingsScreen(
                     Icon(Icons.Default.Save, null)
                     Text(" Save")
                 }
+            }
+        }
+        if (onOpenDeviceSettings != null || onOpenOtherHomeScreen != null) {
+            item { HorizontalDivider(); SectionTitle("Device") }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    onOpenDeviceSettings?.let { OutlinedButton(onClick = it) { Text("Device settings") } }
+                    onOpenOtherHomeScreen?.let { OutlinedButton(onClick = it) { Text("Portal home screen") } }
+                }
+                Text("Press Home to come back to Family Portal.", style = MaterialTheme.typography.bodySmall)
             }
         }
         item { HorizontalDivider(); SectionTitle("Security") }
