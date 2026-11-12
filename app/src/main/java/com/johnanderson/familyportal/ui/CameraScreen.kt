@@ -15,11 +15,16 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.johnanderson.familyportal.camera.CameraRepository
 import com.johnanderson.familyportal.core.CameraConfig
 
@@ -199,6 +205,29 @@ private fun FullScreenCameraPage(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 68.dp, end = 20.dp),
         ) {
             Icon(Icons.Default.Close, "Dismiss")
+        }
+    }
+}
+
+/** Switches the Cameras tab between live video and what the cameras have detected. */
+@Composable
+fun CameraViewSwitch(showHistory: Boolean, onShowHistoryChange: (Boolean) -> Unit) {
+    SingleChoiceSegmentedButtonRow {
+        SegmentedButton(
+            selected = !showHistory,
+            onClick = { onShowHistoryChange(false) },
+            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+            icon = { Icon(Icons.Default.Videocam, null) },
+        ) {
+            Text("Live", style = MaterialTheme.typography.labelLarge.copy(fontSize = 16.sp))
+        }
+        SegmentedButton(
+            selected = showHistory,
+            onClick = { onShowHistoryChange(true) },
+            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+            icon = { Icon(Icons.Default.History, null) },
+        ) {
+            Text("History", style = MaterialTheme.typography.labelLarge.copy(fontSize = 16.sp))
         }
     }
 }

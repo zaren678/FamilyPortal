@@ -58,7 +58,7 @@ class HomeAssistantClient(
      */
     fun entityStates(baseUrl: String, token: String, entityId: String): Flow<HomeAssistantEntityState> = callbackFlow {
         _connectionState.value = ConnectionState.CONNECTING
-        val request = Request.Builder().url(webSocketUrl(baseUrl)).build()
+        val request = Request.Builder().url(homeAssistantWebSocketUrl(baseUrl)).build()
         val listener = object : WebSocketListener() {
             // Only touched on OkHttp's reader thread.
             private var current: HomeAssistantEntityState? = null
@@ -125,20 +125,20 @@ class HomeAssistantClient(
         }
     }
 
-    private fun webSocketUrl(baseUrl: String): String {
-        val clean = baseUrl.trim().trimEnd('/')
-        val wsBase = when {
-            clean.startsWith("https://") -> "wss://${clean.removePrefix("https://")}"
-            clean.startsWith("http://") -> "ws://${clean.removePrefix("http://")}"
-            clean.startsWith("wss://") || clean.startsWith("ws://") -> clean
-            else -> "ws://$clean"
-        }
-        return "$wsBase/api/websocket"
-    }
-
     private companion object {
         const val SUBSCRIPTION_ID = 1
     }
+}
+
+internal fun homeAssistantWebSocketUrl(baseUrl: String): String {
+    val clean = baseUrl.trim().trimEnd('/')
+    val wsBase = when {
+        clean.startsWith("https://") -> "wss://${clean.removePrefix("https://")}"
+        clean.startsWith("http://") -> "ws://${clean.removePrefix("http://")}"
+        clean.startsWith("wss://") || clean.startsWith("ws://") -> clean
+        else -> "ws://$clean"
+    }
+    return "$wsBase/api/websocket"
 }
 
 /**
@@ -163,7 +163,7 @@ internal fun JsonObject.entityStateUpdate(
     return null
 }
 
-private fun JsonObject.string(key: String): String? = get(key)?.jsonPrimitive?.contentOrNull
+internal fun JsonObject.string(key: String): String? = get(key)?.jsonPrimitive?.contentOrNull
 
-private fun JsonObject.epochSeconds(key: String): Instant? =
+internal fun JsonObject.epochSeconds(key: String): Instant? =
     get(key)?.jsonPrimitive?.doubleOrNull?.let { Instant.ofEpochMilli((it * 1_000).toLong()) }

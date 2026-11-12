@@ -6,6 +6,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
@@ -14,6 +17,8 @@ data class HomeAssistantEntityChoice(
     val entityId: String,
     val name: String,
     val deviceClass: String?,
+    /** Set on cameras from the Frigate integration. */
+    val frigateCamera: FrigateCamera? = null,
 )
 
 data class HomeAssistantCameraChoice(
@@ -25,6 +30,20 @@ data class HomeAssistantCameraChoice(
 fun List<CameraConfig>.configuredFor(choice: HomeAssistantCameraChoice): CameraConfig? {
     val choiceEntityIds = setOfNotNull(choice.main.entityId, choice.preview?.entityId)
     return firstOrNull { camera -> camera.entityIds().any(choiceEntityIds::contains) }
+}
+
+/**
+ * The Frigate camera behind each of [cameras] that has one, by camera ID. Frigate's
+ * detections come from the main stream's camera, so that's preferred over the preview's.
+ */
+fun HomeAssistantCatalog.frigateCameras(cameras: List<CameraConfig>): Map<String, FrigateCamera> {
+    val byEntityId = this.cameras.associateBy(HomeAssistantEntityChoice::entityId)
+    return cameras.mapNotNull { camera ->
+        val frigate = byEntityId[camera.entityId]?.frigateCamera
+            ?: byEntityId[camera.previewEntityId]?.frigateCamera
+            ?: return@mapNotNull null
+        camera.id to frigate
+    }.toMap()
 }
 
 fun HomeAssistantEntityChoice.isLikelyCameraSubstream(): Boolean {
@@ -116,6 +135,7 @@ class HomeAssistantCatalogClient(
                 entityId = state.entityId,
                 name = state.attributes.friendlyName ?: state.entityId,
                 deviceClass = state.attributes.deviceClass,
+                frigateCamera = state.frigateCamera(),
             )
         }
         HomeAssistantCatalog(
@@ -141,10 +161,23 @@ class HomeAssistantCatalogClient(
     private data class Attributes(
         @kotlinx.serialization.SerialName("friendly_name") val friendlyName: String? = null,
         @kotlinx.serialization.SerialName("device_class") val deviceClass: String? = null,
+        // The Frigate integration's camera entities say which Frigate camera they show.
+        // Other integrations may use these names for anything, so they're read leniently.
+        @kotlinx.serialization.SerialName("camera_name") val frigateCameraName: JsonElement? = null,
+        @kotlinx.serialization.SerialName("client_id") val frigateClientId: JsonElement? = null,
     )
+
+    private fun StateResponse.frigateCamera(): FrigateCamera? {
+        if (!entityId.startsWith("camera.")) return null
+        val name = (attributes.frigateCameraName as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank) ?: return null
+        val instanceId = (attributes.frigateClientId as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
+        return FrigateCamera(instanceId ?: DEFAULT_FRIGATE_INSTANCE, name)
+    }
 
     private companion object {
         val PERSON_DEVICE_CLASSES = setOf("motion", "occupancy", "presence")
         val PERSON_TERMS = listOf("person", "doorbell", "front door", "visitor")
+        // Frigate's default MQTT client ID, which the integration uses to name the server.
+        const val DEFAULT_FRIGATE_INSTANCE = "frigate"
     }
 }

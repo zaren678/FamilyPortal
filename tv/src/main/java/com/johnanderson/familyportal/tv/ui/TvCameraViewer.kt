@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -43,8 +44,9 @@ import com.johnanderson.familyportal.core.CameraConfig
 import com.johnanderson.familyportal.ui.FullScreenCameraVideo
 
 /**
- * Full-screen camera on TV. Left/Right switches camera, Down pins it to the corner,
- * OK toggles audio when the camera has it, Back returns. Always starts muted.
+ * Full-screen camera on TV. Left/Right switches camera, Up opens its history, Down
+ * pins it to the corner, OK toggles audio when the camera has it, Back returns.
+ * Always starts muted.
  */
 @Composable
 fun TvCameraViewer(
@@ -55,6 +57,8 @@ fun TvCameraViewer(
     active: Boolean,
     onPin: (CameraConfig) -> Unit,
     onExit: (lastCameraId: String) -> Unit,
+    /** Null where there's no camera history to open, like the doorbell popup. */
+    onOpenHistory: ((CameraConfig) -> Unit)? = null,
 ) {
     var index by rememberSaveable(initialCameraId) {
         mutableIntStateOf(cameras.indexOfFirst { it.id == initialCameraId }.coerceAtLeast(0))
@@ -81,6 +85,11 @@ fun TvCameraViewer(
                         if (cameras.size < 2) return@onKeyEvent false
                         val step = if (event.key == Key.DirectionRight) 1 else -1
                         index = (index + step + cameras.size) % cameras.size
+                        true
+                    }
+                    Key.DirectionUp -> {
+                        if (onOpenHistory == null) return@onKeyEvent false
+                        if (event.nativeKeyEvent.repeatCount == 0) onOpenHistory(camera)
                         true
                     }
                     Key.DirectionDown -> {
@@ -112,7 +121,11 @@ fun TvCameraViewer(
                         color = Color.White,
                         style = MaterialTheme.typography.headlineMedium,
                     )
-                    val hints = viewerHints(canSwitch = cameras.size > 1, audioAvailable = hasAudio)
+                    val hints = viewerHints(
+                        canSwitch = cameras.size > 1,
+                        audioAvailable = hasAudio,
+                        historyAvailable = onOpenHistory != null,
+                    )
                     if (hints.isNotEmpty()) {
                         Row(
                             modifier = Modifier
@@ -126,6 +139,7 @@ fun TvCameraViewer(
                             hints.forEach { hint ->
                                 when (hint) {
                                     ViewerHint.SWITCH_CAMERA -> RemoteHint(key = "◀ ▶", label = "Cameras")
+                                    ViewerHint.HISTORY -> RemoteHint(key = "▲", icon = Icons.Default.History, label = "History")
                                     ViewerHint.PIN -> RemoteHint(key = "▼", icon = Icons.Default.PushPin, iconDescription = "Pin")
                                     ViewerHint.TOGGLE_AUDIO -> RemoteHint(
                                         key = "OK",
@@ -142,12 +156,13 @@ fun TvCameraViewer(
     }
 }
 
-internal enum class ViewerHint { SWITCH_CAMERA, PIN, TOGGLE_AUDIO }
+internal enum class ViewerHint { SWITCH_CAMERA, HISTORY, PIN, TOGGLE_AUDIO }
 
 /** Remote hints worth showing; Back is left out since it always returns. */
-internal fun viewerHints(canSwitch: Boolean, audioAvailable: Boolean): List<ViewerHint> =
+internal fun viewerHints(canSwitch: Boolean, audioAvailable: Boolean, historyAvailable: Boolean): List<ViewerHint> =
     listOfNotNull(
         ViewerHint.SWITCH_CAMERA.takeIf { canSwitch },
+        ViewerHint.HISTORY.takeIf { historyAvailable },
         ViewerHint.PIN,
         ViewerHint.TOGGLE_AUDIO.takeIf { audioAvailable },
     )

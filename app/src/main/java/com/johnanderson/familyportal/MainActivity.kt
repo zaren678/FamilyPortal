@@ -42,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +66,7 @@ import androidx.navigation.compose.rememberNavController
 import com.johnanderson.familyportal.core.ConnectionState
 import com.johnanderson.familyportal.core.PortalOverlay
 import com.johnanderson.familyportal.core.PortalTab
+import com.johnanderson.familyportal.ha.FrigateEvent
 import com.johnanderson.familyportal.ha.HomeAssistantAuthActivity
 import com.johnanderson.familyportal.service.AlertReadiness
 import com.johnanderson.familyportal.service.DoorbellService
@@ -73,7 +75,11 @@ import com.johnanderson.familyportal.service.checkAlertReadiness
 import com.johnanderson.familyportal.service.fullScreenIntentSettingsIntent
 import com.johnanderson.familyportal.ui.CalendarScreen
 import com.johnanderson.familyportal.ui.CameraScreen
+import com.johnanderson.familyportal.ui.CameraViewSwitch
 import com.johnanderson.familyportal.ui.CameraViewerOverlay
+import com.johnanderson.familyportal.ui.EventClipOverlay
+import com.johnanderson.familyportal.ui.EventHistoryScreen
+import com.johnanderson.familyportal.ui.displayName
 import com.johnanderson.familyportal.ui.PinDialog
 import com.johnanderson.familyportal.ui.SettingsScreen
 import com.johnanderson.familyportal.ui.TodayScreen
@@ -84,6 +90,9 @@ class MainActivity : ComponentActivity() {
     private val portalViewModel: PortalViewModel by viewModels {
         PortalViewModel.factory((application as FamilyPortalApplication).graph)
     }
+    private val eventHistoryViewModel: EventHistoryViewModel by viewModels {
+        EventHistoryViewModel.factory((application as FamilyPortalApplication).graph)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -93,7 +102,7 @@ class MainActivity : ComponentActivity() {
         DoorbellService.start(this)
         setContent {
             FamilyPortalTheme {
-                FamilyPortalApp(portalViewModel)
+                FamilyPortalApp(portalViewModel, eventHistoryViewModel)
             }
         }
     }
@@ -194,7 +203,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FamilyPortalApp(viewModel: PortalViewModel) {
+private fun FamilyPortalApp(viewModel: PortalViewModel, historyViewModel: EventHistoryViewModel) {
     val activity = LocalActivity.current ?: return
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsState()
@@ -216,6 +225,9 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
     val homeAssistantSetupError by viewModel.homeAssistantSetupError.collectAsStateWithLifecycle()
     val weather by viewModel.weather.collectAsStateWithLifecycle()
     val weatherError by viewModel.weatherError.collectAsStateWithLifecycle()
+    val history by historyViewModel.state.collectAsStateWithLifecycle()
+    var playingEvent by remember { mutableStateOf<FrigateEvent?>(null) }
+    var showCameraHistory by rememberSaveable { mutableStateOf(false) }
     val navController = rememberNavController()
     val route by navController.currentBackStackEntryAsState()
     var requestPin by remember { mutableStateOf(false) }
@@ -374,13 +386,39 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                     )
                 }
                 composable(ROUTE_CAMERAS) {
-                    CameraScreen(
-                        cameras = displayCameras,
-                        homeAssistantUrl = settings.homeAssistantUrl,
-                        repository = viewModel.graph.cameraRepository,
-                        previewsActive = appResumed && appState.overlay == null,
-                        onCameraSelected = viewModel::openCamera,
-                    )
+                    val viewSwitch = @Composable {
+                        CameraViewSwitch(showHistory = showCameraHistory, onShowHistoryChange = { showCameraHistory = it })
+                    }
+                    if (showCameraHistory) {
+                        EventHistoryScreen(
+                            state = history,
+                            active = appResumed && appState.overlay == null && playingEvent == null,
+                            onRefresh = historyViewModel::refresh,
+                            onLoadOlder = historyViewModel::loadOlder,
+                            onSelectCamera = historyViewModel::selectCamera,
+                            onSelectLabel = historyViewModel::selectLabel,
+                            loadImage = historyViewModel::image,
+                            onEventSelected = { event ->
+                                val camera = history.cameraFor(event)
+                                // Still happening: watch it live instead.
+                                if (event.endTime == null && camera != null) viewModel.openCamera(camera.id)
+                                else playingEvent = event
+                            },
+                            header = viewSwitch,
+                        )
+                    } else {
+                        Column {
+                            Box(Modifier.padding(start = 8.dp, top = 8.dp)) { viewSwitch() }
+                            CameraScreen(
+                                cameras = displayCameras,
+                                homeAssistantUrl = settings.homeAssistantUrl,
+                                repository = viewModel.graph.cameraRepository,
+                                previewsActive = appResumed && appState.overlay == null,
+                                onCameraSelected = viewModel::openCamera,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
                 composable(ROUTE_SETTINGS) {
                     SettingsScreen(
@@ -431,6 +469,16 @@ private fun FamilyPortalApp(viewModel: PortalViewModel) {
                     )
                 }
             }
+        }
+        playingEvent?.let { event ->
+            EventClipOverlay(
+                event = event,
+                cameraName = history.cameraFor(event)?.name ?: displayName(event.camera.name),
+                active = appResumed && appState.overlay == null,
+                loadClip = historyViewModel::clipUrl,
+                loadImage = historyViewModel::image,
+                onDismiss = { playingEvent = null },
+            )
         }
         val overlay = appState.overlay
         if (overlay != null && appResumed) {

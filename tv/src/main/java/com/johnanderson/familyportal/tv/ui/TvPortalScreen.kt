@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.EventBusy
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PushPin
@@ -41,11 +42,13 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -102,8 +105,11 @@ fun TvPortalScreen(
     cameraRepository: CameraRepository,
     statusProblem: Boolean,
     pinnedCameraId: String?,
+    cameraSelection: TvCameraSelection,
     onOpenSetup: () -> Unit,
     onOpenStatus: () -> Unit,
+    /** Opens camera history, for one camera or (null) all of them. */
+    onOpenHistory: (cameraId: String?) -> Unit,
     onTogglePin: (String) -> Unit,
     onPinAndLeave: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -131,11 +137,9 @@ fun TvPortalScreen(
         showStatusWarning = statusProblem
     }
     val cameras = remember(settings.cameras) { settings.cameras.sortedByDescending { it.isDoorbell } }
-    var fullscreenCameraId by rememberSaveable { mutableStateOf<String?>(null) }
-    var lastViewedCameraId by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedEvent by remember { mutableStateOf<CalendarEventEntity?>(null) }
 
-    fullscreenCameraId?.takeIf { id -> cameras.any { it.id == id } }?.let { cameraId ->
+    cameraSelection.fullscreenCameraId?.takeIf { id -> cameras.any { it.id == id } }?.let { cameraId ->
         TvCameraViewer(
             cameras = cameras,
             initialCameraId = cameraId,
@@ -143,14 +147,15 @@ fun TvPortalScreen(
             repository = cameraRepository,
             active = active,
             onPin = { camera ->
-                lastViewedCameraId = camera.id
-                fullscreenCameraId = null
+                cameraSelection.close(camera.id)
                 onPinAndLeave(camera.id)
             },
-            onExit = { lastCameraId ->
-                lastViewedCameraId = lastCameraId
-                fullscreenCameraId = null
+            onOpenHistory = { camera ->
+                // So Back from history returns to this camera.
+                cameraSelection.fullscreenCameraId = camera.id
+                onOpenHistory(camera.id)
             },
+            onExit = cameraSelection::close,
         )
         return
     }
@@ -175,6 +180,7 @@ fun TvPortalScreen(
             pinnedCameraName = cameras.firstOrNull { it.id == pinnedCameraId }?.name,
             onOpenSetup = onOpenSetup,
             onOpenStatus = onOpenStatus,
+            onOpenHistory = { onOpenHistory(null) }.takeIf { cameras.isNotEmpty() && settings.homeAssistantUrl.isNotBlank() },
             onUnpin = { pinnedCameraId?.let(onTogglePin) },
             settingsInitialFocus = initialFocus.takeIf {
                 !needsSetup && cameras.isEmpty() && agendaSections.all { it.events.isEmpty() }
@@ -193,10 +199,10 @@ fun TvPortalScreen(
                     homeAssistantUrl = settings.homeAssistantUrl,
                     repository = cameraRepository,
                     active = active,
-                    focusCameraId = lastViewedCameraId ?: cameras.firstOrNull()?.id,
+                    focusCameraId = cameraSelection.lastViewedCameraId ?: cameras.firstOrNull()?.id,
                     initialFocus = initialFocus,
                     pinnedCameraId = pinnedCameraId,
-                    onCameraSelected = { fullscreenCameraId = it },
+                    onCameraSelected = { cameraSelection.fullscreenCameraId = it },
                     onTogglePin = onTogglePin,
                     modifier = Modifier.weight(1.6f).fillMaxHeight(),
                 )
@@ -213,6 +219,32 @@ fun TvPortalScreen(
         }
     }
 }
+
+/**
+ * Which camera is full screen, and which to focus on coming back from one. Kept
+ * above the dashboard so camera history can open a camera, and so Back from a
+ * camera's history returns to it.
+ */
+@Stable
+class TvCameraSelection(fullscreenCameraId: String? = null, lastViewedCameraId: String? = null) {
+    var fullscreenCameraId by mutableStateOf(fullscreenCameraId)
+    var lastViewedCameraId by mutableStateOf(lastViewedCameraId)
+
+    fun close(lastCameraId: String) {
+        lastViewedCameraId = lastCameraId
+        fullscreenCameraId = null
+    }
+
+    companion object {
+        val Saver = listSaver<TvCameraSelection, String?>(
+            save = { listOf(it.fullscreenCameraId, it.lastViewedCameraId) },
+            restore = { TvCameraSelection(it[0], it[1]) },
+        )
+    }
+}
+
+@Composable
+fun rememberTvCameraSelection(): TvCameraSelection = rememberSaveable(saver = TvCameraSelection.Saver) { TvCameraSelection() }
 
 /** Show the setup prompt only until at least one of Home Assistant or Google is connected. */
 internal fun tvNeedsSetup(settings: AppSettings, googleAuthorized: Boolean): Boolean =
@@ -253,6 +285,7 @@ private fun TvHeader(
     pinnedCameraName: String?,
     onOpenSetup: () -> Unit,
     onOpenStatus: () -> Unit,
+    onOpenHistory: (() -> Unit)?,
     onUnpin: () -> Unit,
     settingsInitialFocus: InitialFocus?,
 ) {
@@ -287,6 +320,19 @@ private fun TvHeader(
                     Icons.Default.Warning,
                     contentDescription = "Something needs attention",
                     tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(OutlinedIconButtonDefaults.LargeIconSize),
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+        }
+        if (onOpenHistory != null) {
+            OutlinedIconButton(
+                onClick = onOpenHistory,
+                modifier = Modifier.size(OutlinedIconButtonDefaults.LargeButtonSize),
+            ) {
+                Icon(
+                    Icons.Default.History,
+                    contentDescription = "Camera history",
                     modifier = Modifier.size(OutlinedIconButtonDefaults.LargeIconSize),
                 )
             }
@@ -615,7 +661,7 @@ private fun EmptyState(icon: ImageVector, text: String) {
 
 /** Whether the TV's screensaver is running, from the system's dreaming broadcasts. */
 @Composable
-private fun rememberIsDreaming(): Boolean {
+internal fun rememberIsDreaming(): Boolean {
     val context = LocalContext.current
     var dreaming by remember { mutableStateOf(false) }
     DisposableEffect(context) {
@@ -641,8 +687,8 @@ private fun CalendarEventEntity.tvTimeLabel(zone: ZoneId): String {
 }
 
 // Google's TV guidelines: keep content within ~5% of each screen edge.
-private val TV_OVERSCAN_HORIZONTAL = 48.dp
-private val TV_OVERSCAN_VERTICAL = 27.dp
+internal val TV_OVERSCAN_HORIZONTAL = 48.dp
+internal val TV_OVERSCAN_VERTICAL = 27.dp
 private const val CLOCK_REFRESH_MILLIS = 30_000L
 private const val STATUS_WARNING_DELAY_MILLIS = 10_000L
 private val TV_DAY_DATE = DateTimeFormatter.ofPattern("EEEE, MMMM d")

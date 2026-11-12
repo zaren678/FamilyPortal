@@ -6,8 +6,8 @@ Dedicated landscape Android dashboard for a shared Google Calendar, Home Assista
 
 | Module | Contents |
 | --- | --- |
-| `:core` | Settings and secure storage, Room calendar cache, Google and Home Assistant auth, HA discovery/catalog/weather, `CameraRepository`, `PortalViewModel` |
-| `:core-ui` | Shared Compose: theme, live camera preview and full-screen player, event dialog, calendar colours, weather panel |
+| `:core` | Settings and secure storage, Room calendar cache, Google and Home Assistant auth, HA discovery/catalog/weather, `CameraRepository`, Frigate event history, `PortalViewModel` |
+| `:core-ui` | Shared Compose: theme, live camera preview and full-screen player, event snapshots and clip player, event dialog, calendar colours, weather panel |
 | `:app` | Portal app (`com.johnanderson.familyportal`): touch UI, Settings, doorbell service, boot receiver, HOME role |
 | `:tv` | Android TV app (`com.johnanderson.familyportal.tv`): D-pad dashboard, full-screen camera viewer, TV setup, doorbell popup |
 
@@ -78,6 +78,14 @@ To restore the Meta launcher permanently, list HOME candidates with `adb shell c
 
 Secrets are stored with an Android Keystore AES-GCM key and are not logged. Calendar events remain available from the local Room cache when Google is offline.
 
+## Camera history
+
+Both apps show what [Frigate](https://frigate.video) has detected (people, cars, animals), newest first and grouped by day, with each event's snapshot and recording. On the Portal it's under **Cameras → History**.
+
+It comes through Home Assistant's [Frigate integration](https://github.com/blakeblackshear/frigate-hass-integration), using the app's existing Home Assistant sign-in; Frigate doesn't need to be reachable directly. Cameras added from the integration are matched to Frigate by their `camera_name` attribute. Only cameras added to the app are shown, so one left off on purpose (say, indoors) stays off it. A camera only appears as a filter once Frigate has detected something on it, so cameras with detection turned off in Frigate stay out of the way. History is as long as Frigate keeps events.
+
+Tap an event to play its recording, from a few seconds before to a few after. An event still in progress opens the live camera instead.
+
 ## Android TV
 
 The TV app shows live cameras, today's agenda, and weather, plus a pinned camera and an optional doorbell popup. It has no HOME role or PIN.
@@ -94,6 +102,8 @@ Open Family Portal from the TV's app row, choose **Set up**, then:
 3. Turn on the cameras to show and choose a weather entity.
 
 On the dashboard, press OK on a camera to view it full screen; Left/Right switches cameras, OK toggles audio when available, and Back returns. The TV screensaver is only blocked while a camera is full screen.
+
+For [camera history](#camera-history), choose the history button next to Settings, or press Up while watching a camera full screen to see just that camera's (Back returns to it). Press OK on an event to play it: OK plays and pauses, Left/Right skip 10 seconds, and Back returns to the list.
 
 ### Pin a camera
 

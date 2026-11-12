@@ -24,18 +24,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import com.johnanderson.familyportal.FamilyPortalApplication
+import com.johnanderson.familyportal.EventHistoryViewModel
 import com.johnanderson.familyportal.PortalViewModel
+import com.johnanderson.familyportal.ha.FrigateEvent
 import com.johnanderson.familyportal.ha.HomeAssistantAuthActivity
 import com.johnanderson.familyportal.tv.overlay.TvOverlayService
 import com.johnanderson.familyportal.tv.overlay.doorbellPopupConfigured
 import com.johnanderson.familyportal.tv.ui.FamilyPortalTvTheme
+import com.johnanderson.familyportal.tv.ui.TvEventClipViewer
+import com.johnanderson.familyportal.tv.ui.TvEventHistoryScreen
 import com.johnanderson.familyportal.tv.ui.TvPortalScreen
+import com.johnanderson.familyportal.tv.ui.rememberIsDreaming
+import com.johnanderson.familyportal.tv.ui.rememberTvCameraSelection
+import com.johnanderson.familyportal.ui.displayName
 import com.johnanderson.familyportal.tv.ui.StatusLevel
 import com.johnanderson.familyportal.tv.ui.TvSetupScreen
 import com.johnanderson.familyportal.tv.ui.TvStatusInput
@@ -54,6 +62,9 @@ class TvMainActivity : ComponentActivity() {
     private val portalViewModel: PortalViewModel by viewModels {
         PortalViewModel.factory((application as FamilyPortalApplication).graph)
     }
+    private val eventHistoryViewModel: EventHistoryViewModel by viewModels {
+        EventHistoryViewModel.factory((application as FamilyPortalApplication).graph)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,7 +75,7 @@ class TvMainActivity : ComponentActivity() {
                     shape = RectangleShape,
                     colors = SurfaceDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
                 ) {
-                    FamilyPortalTvApp(portalViewModel)
+                    FamilyPortalTvApp(portalViewModel, eventHistoryViewModel)
                 }
             }
         }
@@ -72,7 +83,7 @@ class TvMainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
+private fun FamilyPortalTvApp(viewModel: PortalViewModel, historyViewModel: EventHistoryViewModel) {
     // Null until loaded, so "not loaded yet" isn't mistaken for "nothing set up".
     val settings = viewModel.settings.collectAsStateWithLifecycle().value ?: return
     val events by viewModel.todayEvents.collectAsStateWithLifecycle()
@@ -87,6 +98,10 @@ private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
     val pinnedCameraId = viewModel.appState.collectAsStateWithLifecycle().value.pinnedCameraId
     var showSetup by rememberSaveable { mutableStateOf(false) }
     var showStatus by rememberSaveable { mutableStateOf(false) }
+    var showHistory by rememberSaveable { mutableStateOf(false) }
+    var playingEvent by remember { mutableStateOf<FrigateEvent?>(null) }
+    var lastPlayedEventId by rememberSaveable { mutableStateOf<String?>(null) }
+    val cameraSelection = rememberTvCameraSelection()
     val context = LocalContext.current
     val activity = LocalActivity.current
     val popupConfigured = doorbellPopupConfigured(settings)
@@ -172,6 +187,43 @@ private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
             onOpenStatus = { showStatus = true },
             onDone = { showSetup = false },
         )
+    } else if (showHistory) {
+        val history by historyViewModel.state.collectAsStateWithLifecycle()
+        val active = lifecycleState.isAtLeast(Lifecycle.State.RESUMED) && !rememberIsDreaming()
+        val event = playingEvent
+        if (event != null) {
+            BackHandler { playingEvent = null }
+            TvEventClipViewer(
+                event = event,
+                cameraName = history.cameraFor(event)?.name ?: displayName(event.camera.name),
+                active = active,
+                loadClip = historyViewModel::clipUrl,
+                loadImage = historyViewModel::image,
+            )
+        } else {
+            BackHandler { showHistory = false }
+            TvEventHistoryScreen(
+                state = history,
+                active = active,
+                onRefresh = historyViewModel::refresh,
+                onLoadOlder = historyViewModel::loadOlder,
+                onSelectCamera = historyViewModel::selectCamera,
+                onSelectLabel = historyViewModel::selectLabel,
+                loadImage = historyViewModel::image,
+                onEventSelected = { selected ->
+                    val camera = history.cameraFor(selected)
+                    if (selected.endTime == null && camera != null) {
+                        // Still happening: watch it live instead.
+                        cameraSelection.fullscreenCameraId = camera.id
+                        showHistory = false
+                    } else {
+                        lastPlayedEventId = selected.id
+                        playingEvent = selected
+                    }
+                },
+                focusEventId = lastPlayedEventId,
+            )
+        }
     } else {
         TvPortalScreen(
             settings = settings,
@@ -182,8 +234,14 @@ private fun FamilyPortalTvApp(viewModel: PortalViewModel) {
             cameraRepository = viewModel.graph.cameraRepository,
             statusProblem = statusItems.any { it.level == StatusLevel.PROBLEM },
             pinnedCameraId = pinnedCameraId,
+            cameraSelection = cameraSelection,
             onOpenSetup = { showSetup = true },
             onOpenStatus = { showStatus = true },
+            onOpenHistory = { cameraId ->
+                if (historyViewModel.state.value.selectedCameraId != cameraId) historyViewModel.selectCamera(cameraId)
+                lastPlayedEventId = null
+                showHistory = true
+            },
             onTogglePin = { cameraId ->
                 if (cameraId == pinnedCameraId) viewModel.graph.coordinator.unpinCamera()
                 else TvOverlayService.pinCamera(context, cameraId)

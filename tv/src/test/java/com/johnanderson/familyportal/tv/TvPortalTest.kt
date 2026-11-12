@@ -22,10 +22,13 @@ class TvPortalTest {
 
     @Test
     fun viewerHintsOnlyOfferAvailableActions() {
-        assertEquals(listOf(ViewerHint.PIN), viewerHints(canSwitch = false, audioAvailable = false))
         assertEquals(
-            listOf(ViewerHint.SWITCH_CAMERA, ViewerHint.PIN, ViewerHint.TOGGLE_AUDIO),
-            viewerHints(canSwitch = true, audioAvailable = true),
+            listOf(ViewerHint.PIN),
+            viewerHints(canSwitch = false, audioAvailable = false, historyAvailable = false),
+        )
+        assertEquals(
+            listOf(ViewerHint.SWITCH_CAMERA, ViewerHint.HISTORY, ViewerHint.PIN, ViewerHint.TOGGLE_AUDIO),
+            viewerHints(canSwitch = true, audioAvailable = true, historyAvailable = true),
         )
     }
 
